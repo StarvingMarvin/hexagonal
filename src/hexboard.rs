@@ -56,7 +56,7 @@ pub type IterFieldMut<'a, T> = std::slice::IterMut<'a, T>;
 
 #[inline]
 fn max_coord(index: Coordinate) -> u8 {
-    index.x.abs().max(index.x.abs()).max(index.z().abs()) as u8
+    index.x.abs().max(index.y.abs()).max(index.z().abs()) as u8
 }
 
 #[derive(Debug, Clone)]
