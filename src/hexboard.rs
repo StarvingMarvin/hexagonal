@@ -52,6 +52,62 @@ fn get_round_idx(board_size: u8, index: Coordinate) -> usize {
 pub type IterField<'a, T> = std::slice::Iter<'a, T>;
 pub type IterFieldMut<'a, T> = std::slice::IterMut<'a, T>;
 
+pub type IterCoord<'a> = std::slice::Iter<'a, Coordinate>;
+
+static mut COORDS: [Option<Box<[Coordinate]>>; 127] = init_coords();
+const fn init_coords() -> [Option<Box<[Coordinate]>>; 127] {
+    unsafe {
+        const SIZE: usize = std::mem::size_of::<[Option<Box<[Coordinate]>>; 127]>();
+        let ret = [0_u8; SIZE];
+        std::mem::transmute::<[u8; SIZE], [Option<Box<[Coordinate]>>; 127]>(ret)
+    }
+}
+
+
+fn get_coords(board_size: u8) -> &'static [Coordinate] {
+    let s = board_size as usize;
+    unsafe {
+        let c = &mut COORDS[s];
+        c.get_or_insert_with(|| {
+            let mut v = Vec::with_capacity(3 * s * (s - 1) + 1);
+            let is1 = board_size as i32 - 1;
+
+            for i in -is1..=is1 {
+                let (lb, ub) = if i < 0 {
+                    (-is1 - i, is1)
+                } else {
+                    (-is1, is1 - i)
+                };
+
+                for j in lb..=ub {
+                    v.push((i, j).into());
+                }
+            }
+            v.into_boxed_slice()
+        })
+    }
+
+}
+
+pub struct IterCoordField<'a, T> {
+    size: u8,
+    fields: &'a Box<[T]>,
+    idx: usize
+}
+
+impl<'a, T> Iterator for IterCoordField<'a, T> {
+    type Item=(Coordinate, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.idx < self.fields.len() {
+            let ret = (get_coords(self.size)[self.idx], &self.fields[self.idx]);
+            self.idx += 1;
+            Some(ret)
+        } else {
+            None
+        }
+    }
+
 }
 
 #[inline]
@@ -65,7 +121,7 @@ pub struct RoundHexBoard<T>
     T: FieldTrait
 {
     size: u8,
-    board: Box<[(Coordinate, T)]>
+    board: Box<[T]>
 }
 
 impl<'a, T> RoundHexBoard<T>
@@ -75,22 +131,7 @@ where
     pub fn new(size: u8) -> RoundHexBoard<T> {
         let s = size as usize;
         let len = 3 * s * (s - 1) + 1;
-        let mut board = Vec::with_capacity(len);
-
-        let is1 = size as i32 - 1;
-
-        for i in -is1..=is1 {
-            let (lb, ub) = if i < 0 {
-                (-is1 - i, is1)
-            } else {
-                (-is1, is1 - i)
-            };
-
-            for j in lb..=ub {
-                let c = (i, j).into();
-                board.push((c, T::default()));
-            }
-        }
+        let board = vec![T::default(); len];
 
         RoundHexBoard {
             size,
@@ -106,8 +147,20 @@ where
         self.size as usize
     }
 
-    pub fn iter(&self) -> Iter<'_, (Coordinate, T)> {
+    pub fn iter_fields(&self) -> IterField<'_, T> {
         self.board.iter()
+    }
+
+    pub fn iter_fields_mut(&mut self) -> IterFieldMut<'_, T> {
+        self.board.iter_mut()
+    }
+
+    pub fn iter_coords(&self) -> IterCoord {
+        get_coords(self.size).iter()
+    }
+
+    pub fn iter_coord_fields(&self) -> IterCoordField<'_, T>{
+        IterCoordField { size: self.size, fields: &self.board, idx: 0 }
     }
 
     pub fn get(&self, index: Coordinate) -> Option<&T> {
@@ -125,6 +178,10 @@ where
         } else {
             None
         }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.board
     }
 
 }
