@@ -5,6 +5,16 @@ use std::ops::{Index, IndexMut};
 pub trait FieldTrait: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
 impl<T> FieldTrait for T where T: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
 
+// RoundHexBoard saves all the data into a continuous slice so it needs to resolve an (x, y) coordinate into the slice index.
+// Since not every row has the same nuber of columns, this array saves starting offsets for each row for board sizes 1-127.
+// Offsets can be retrieved from a flat array because of the following observations:
+//
+//     * number of rows for the board of (side) size is 2s - 1
+//     * sum{1..n}(2s - 1) = n^2
+//     * therefore offsets for row starts for board of size s is located in OFFSETS[(s - 1)^2..s^2]
+//
+// finally a `get_round_idx` translates (x, y) coordinate to index of a flat array by getting xth offset for board size s and
+// ads y to that
 static OFFSETS: [u16; 128*128] = init_offsets();
 
 const fn init_offsets() -> [u16; 128*128] {
@@ -29,18 +39,19 @@ const fn init_offsets() -> [u16; 128*128] {
     res
 }
 
-pub type Iter<'a, T> = std::slice::Iter<'a, T>;
-pub type IterMut<'a, T> = std::slice::IterMut<'a, T>;
-
-
 #[inline]
 fn get_round_idx(board_size: u8, index: Coordinate) -> usize {
     let is1 = board_size as i32 - 1;
     let us1 = is1 as usize;
     let ux = (index.x + is1) as usize;
-    let xpos = (index.x >> 31) & 1;
-    let s = (1 -xpos) * (index.y + is1) + xpos * (index.y + is1 + index.x);
-    OFFSETS[us1 * us1 + ux] as usize + s as usize
+    let xneg = (index.x >> 31) & 1;
+    let uy = (index.y + is1 + xneg * index.x) as usize;
+    OFFSETS[us1 * us1 + ux] as usize + uy
+}
+
+pub type IterField<'a, T> = std::slice::Iter<'a, T>;
+pub type IterFieldMut<'a, T> = std::slice::IterMut<'a, T>;
+
 }
 
 #[inline]
