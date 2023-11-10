@@ -143,8 +143,8 @@ where
         max_coord(coord) < self.size
     }
 
-    pub fn size(&self) -> usize {
-        self.size as usize
+    pub fn size(&self) -> u8 {
+        self.size
     }
 
     pub fn iter_fields(&self) -> IterField<'_, T> {
@@ -164,20 +164,11 @@ where
     }
 
     pub fn get(&self, index: Coordinate) -> Option<&T> {
-        if self.valid_coord(index) {
-            Some(&self[index])
-        } else {
-            None
-        }
-
+        self.valid_coord(index).then(|| &self[index])
     }
 
     pub fn get_mut(&mut self, index: Coordinate) -> Option<&mut T> {
-        if self.valid_coord(index) {
-            Some(&mut self[index])
-        } else {
-            None
-        }
+        self.valid_coord(index).then(|| &mut self[index])
     }
 
     pub fn as_slice(&self) -> &[T] {
@@ -191,18 +182,17 @@ impl<'a, T: FieldTrait> Index<Coordinate> for RoundHexBoard<T> {
 
     fn index(&self, index: Coordinate) -> &Self::Output {
         let idx: usize = get_round_idx(self.size, index);
-        assert_eq!(self.board[idx].0, index);
-
-        &self.board[idx].1
+        &self.board[idx]
     }
 }
 
 impl<'a, T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
     fn index_mut(&mut self, index: Coordinate) -> &mut Self::Output {
         let idx: usize = get_round_idx(self.size, index);
-        assert_eq!(self.board[idx].0, index);
+        &mut self.board[idx]
+    }
+}
 
-        &mut self.board[idx].1
     }
 }
 
