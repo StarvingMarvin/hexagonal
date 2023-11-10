@@ -1,6 +1,6 @@
 pub use hex2d::Coordinate;
 use std::hash::Hash;
-use std::ops::{Deref, Index, IndexMut};
+use std::ops::{Index, IndexMut};
 
 pub trait FieldTrait: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
 impl<T> FieldTrait for T where T: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
@@ -55,18 +55,6 @@ pub struct RoundHexBoard<T>
 {
     size: u8,
     board: Box<[(Coordinate, T)]>
-}
-
-impl<T> Deref for RoundHexBoard<T>
-    where
-    T: FieldTrait
-{
-    type Target = [(Coordinate, T)];
-
-    #[inline]
-    fn deref(&self) -> &[(Coordinate, T)] {
-        &self.board
-    }
 }
 
 impl<'a, T> RoundHexBoard<T>
