@@ -1,4 +1,4 @@
-pub use hex2d::Coordinate;
+pub use hex2d::{Coordinate, Direction};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
 
@@ -193,6 +193,32 @@ impl<'a, T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
     }
 }
 
+/// Generate successive coordinates in a given direction, from a given coordinate (inclusive)
+pub struct DirectionIterator {
+    coord: Coordinate,
+    dir: Direction
+}
+
+impl Iterator for DirectionIterator {
+    type Item = Coordinate;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ret = self.coord;
+        match self.dir {
+            Direction::YZ => self.coord.y += 1,
+            Direction::XZ => self.coord.x += 1,
+            Direction::XY => { self.coord.x += 1; self.coord.y -= 1 },
+            Direction::ZY => self.coord.y -= 1,
+            Direction::ZX => self.coord.x -= 1,
+            Direction::YX => { self.coord.x -= 1; self.coord.y += 1 },
+        }
+        Some(ret)
+    }
+}
+
+impl DirectionIterator {
+    pub fn new(coord: Coordinate, dir: Direction) -> Self {
+        Self{coord, dir}
     }
 }
 
