@@ -124,6 +124,33 @@ pub struct RoundHexBoard<T>
     board: Box<[T]>
 }
 
+/// A 'round' (actually hexagonal) game board used in games like Havannah and Tumbleweed.
+/// Board size is a size of the side, so a board of size 5 will have `2s - 1 = 11` rows
+/// and `3s^2 - 3s + 1 = 61` fields. A board will initialize a continuous slice of an appropriate
+/// size on the heap and fill it with field type's default value. It is impossible to grow or
+/// shrink the size of an already initialized board.
+///
+/// A board is indexed using [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
+/// with a (0, 0) coordinate placed on a central field. Therefore a valid set of coordinates are
+/// those which respect invariance that max offset from center for any of the three coordinates
+/// (third being `z = -x - y`) is less than board size: `max(|x|, |y|, |-x - y|) < size`.
+/// There are two sets of methods for acceccing fields: `RoundHexBoard::get` and
+/// `RoundHexBoard::get_mut` return an `Option<&T>` or `Option<&mut T>` respectively, whose
+/// value is `None` if coordinate is not valid for a given board size.
+/// `RoundHexBoard` also implement `Index` and `IndexMut` traits.
+/// Acceccing a field using `[]` or `[]=` syntax is undefined for invalid coordinates
+/// (it might panic or it might return the wrong field).
+///
+///```
+///# extern crate hex2d;
+///use hexagonal::hexboard::*;
+///
+///let mut board = RoundHexBoard<i32>::new(5);
+///assert_eq!(board[(1, 2).into()], 0);
+///assert_eq!(board.get((3, 3).into()), None);
+///board[(-2, 3).into()] = 4;
+///assert_eq!(board.get((-2, 3).into()), Some(4));
+///```
 impl<'a, T> RoundHexBoard<T>
 where
     T: FieldTrait,
