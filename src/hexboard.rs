@@ -63,7 +63,6 @@ const fn init_coords() -> [Option<Box<[Coordinate]>>; 127] {
     }
 }
 
-
 fn get_coords(board_size: u8) -> &'static [Coordinate] {
     let s = board_size as usize;
     unsafe {
@@ -91,7 +90,7 @@ fn get_coords(board_size: u8) -> &'static [Coordinate] {
 
 pub struct IterCoordField<'a, T> {
     size: u8,
-    fields: &'a Box<[T]>,
+    fields: &'a [T],
     idx: usize
 }
 
@@ -151,11 +150,19 @@ pub struct RoundHexBoard<T>
 ///board[(-2, 3).into()] = 4;
 ///assert_eq!(board.get((-2, 3).into()), Some(4));
 ///```
-impl<'a, T> RoundHexBoard<T>
+impl<T> RoundHexBoard<T>
 where
     T: FieldTrait,
 {
+
+    /// Constructs a new instance of a given size. In all realistic scenatios
+    /// size will be in roughly 6-12 range so instead of returning Result,
+    /// the method will panic if size is greater than 127, which is well above
+    /// any number that should be encountered.
     pub fn new(size: u8) -> RoundHexBoard<T> {
+        if size > 127 {
+            panic!("size must be less than 128");
+        }
         let s = size as usize;
         let len = 3 * s * (s - 1) + 1;
         let board = vec![T::default(); len];
@@ -166,45 +173,67 @@ where
         }
     }
 
+    /// Chechks if coordinate is falid for this board. Since this board type
+    /// uses [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
+    /// with the origin at central field, coordinate is valid if it's less than
+    /// `size` away along any axis: `max(|x|, |y|, |-x - y|) < size`.
     pub fn valid_coord(&self, coord: Coordinate) -> bool {
         max_coord(coord) < self.size
     }
 
+    /// Board size, that is length in fields of a side of the hexagon that is this board.
     pub fn size(&self) -> u8 {
         self.size
     }
 
+    /// Number of rows. The shortest distance in fields between two parallel sides of the board.
+    pub fn num_rows(&self) -> usize {
+        2 * self.size as usize - 1
+    }
+
+    /// Total number of fields on the board.
+    pub fn num_fields(&self) -> usize {
+        self.board.len()
+    }
+
+    /// An iterator over the board fields.
     pub fn iter_fields(&self) -> IterField<'_, T> {
         self.board.iter()
     }
 
+    /// A mutable iterator over the board fields.
     pub fn iter_fields_mut(&mut self) -> IterFieldMut<'_, T> {
         self.board.iter_mut()
     }
 
+    /// An iterator over the valid board coordinates.
     pub fn iter_coords(&self) -> IterCoord {
         get_coords(self.size).iter()
     }
 
+    /// An iterator over the `(Coordinate, &T)` touples.
     pub fn iter_coord_fields(&self) -> IterCoordField<'_, T>{
         IterCoordField { size: self.size, fields: &self.board, idx: 0 }
     }
 
+    // A safe way to access a field. If coordinate is not valid returns None.
     pub fn get(&self, index: Coordinate) -> Option<&T> {
         self.valid_coord(index).then(|| &self[index])
     }
 
+    // A safe way to access a field. If coordinate is not valid returns None.
     pub fn get_mut(&mut self, index: Coordinate) -> Option<&mut T> {
         self.valid_coord(index).then(|| &mut self[index])
     }
 
+    // A slice view of a board data.
     pub fn as_slice(&self) -> &[T] {
         &self.board
     }
 
 }
 
-impl<'a, T: FieldTrait> Index<Coordinate> for RoundHexBoard<T> {
+impl<T: FieldTrait> Index<Coordinate> for RoundHexBoard<T> {
     type Output = T;
 
     fn index(&self, index: Coordinate) -> &Self::Output {
@@ -213,14 +242,15 @@ impl<'a, T: FieldTrait> Index<Coordinate> for RoundHexBoard<T> {
     }
 }
 
-impl<'a, T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
+impl<T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
     fn index_mut(&mut self, index: Coordinate) -> &mut Self::Output {
         let idx: usize = get_round_idx(self.size, index);
         &mut self.board[idx]
     }
 }
 
-/// Generate successive coordinates in a given direction, from a given coordinate (inclusive)
+/// Generate successive coordinates in a given direction, from a given coordinate (inclusive).
+/// This is an ifinite iterator.
 pub struct DirectionIterator {
     coord: Coordinate,
     dir: Direction
@@ -244,8 +274,8 @@ impl Iterator for DirectionIterator {
 }
 
 impl DirectionIterator {
-    pub fn new(coord: Coordinate, dir: Direction) -> Self {
-        Self{coord, dir}
+    pub fn new(start: Coordinate, dir: Direction) -> Self {
+        Self{coord: start, dir}
     }
 }
 
