@@ -5,16 +5,19 @@ use std::ops::{Index, IndexMut};
 pub trait FieldTrait: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
 impl<T> FieldTrait for T where T: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
 
-// RoundHexBoard saves all the data into a continuous slice so it needs to resolve an (x, y) coordinate into the slice index.
-// Since not every row has the same nuber of columns, this array saves starting offsets for each row for board sizes 1-127.
-// Offsets can be retrieved from a flat array because of the following observations:
+// RoundHexBoard saves all the data into a contiguous slice so it needs to
+// resolve an (x, y) coordinate into the slice index. Since not every row has
+// the same nuber of columns, this array saves starting offsets for each row
+// for board sizes 1-127. Offsets can be retrieved from a flat array because
+// of the following observations:
 //
 //     * number of rows for the board of (side) size is 2s - 1
 //     * sum{1..n}(2s - 1) = n^2
-//     * therefore offsets for row starts for board of size s is located in OFFSETS[(s - 1)^2..s^2]
+//     * therefore offsets for row starts for board of size s is located in
+//       OFFSETS[(s - 1)^2..s^2]
 //
-// finally a `get_round_idx` translates (x, y) coordinate to index of a flat array by getting xth offset for board size s and
-// ads y to that
+// Finally a `get_round_idx` translates (x, y) coordinate to index of a flat array by getting xth offset for board size s and
+// adding y to that
 static OFFSETS: [u16; 128*128] = init_offsets();
 
 const fn init_offsets() -> [u16; 128*128] {
@@ -124,24 +127,23 @@ pub struct RoundHexBoard<T>
 }
 
 /// A 'round' (actually hexagonal) game board used in games like Havannah and Tumbleweed.
-/// Board size is a size of the side, so a board of size 5 will have `2s - 1 = 11` rows
-/// and `3s^2 - 3s + 1 = 61` fields. A board will initialize a continuous slice of an appropriate
-/// size on the heap and fill it with field type's default value. It is impossible to grow or
-/// shrink the size of an already initialized board.
+/// Board size is a length of the side, so a board of size 5 will have `2s - 1 = 11` rows
+/// and `3s^2 - 3s + 1 = 61` fields. A board will initialize a contiguous slice of an
+/// appropriate size on the heap and fill it with field type's default value. It is
+/// impossible to grow or shrink the size of an already initialized board.
 ///
 /// A board is indexed using [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
 /// with a (0, 0) coordinate placed on a central field. Therefore a valid set of coordinates are
 /// those which respect invariance that max offset from center for any of the three coordinates
 /// (third being `z = -x - y`) is less than board size: `max(|x|, |y|, |-x - y|) < size`.
-/// There are two sets of methods for acceccing fields: `RoundHexBoard::get` and
-/// `RoundHexBoard::get_mut` return an `Option<&T>` or `Option<&mut T>` respectively, whose
+/// There are two sets of methods for acceccing fields: [`RoundHexBoard::get`] and
+/// [`RoundHexBoard::get_mut`] return an [`Option<&T>`] or [`Option<&mut T>`] respectively, whose
 /// value is `None` if coordinate is not valid for a given board size.
-/// `RoundHexBoard` also implement `Index` and `IndexMut` traits.
+/// `RoundHexBoard` also implement [`Index`] and [`IndexMut`] traits.
 /// Acceccing a field using `[]` or `[]=` syntax is undefined for invalid coordinates
 /// (it might panic or it might return the wrong field).
 ///
 ///```
-///# extern crate hex2d;
 ///use hexagonal::hexboard::*;
 ///
 ///let mut board = RoundHexBoard<i32>::new(5);
