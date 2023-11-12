@@ -146,11 +146,11 @@ pub struct RoundHexBoard<T>
 ///```
 ///use hexagonal::hexboard::*;
 ///
-///let mut board = RoundHexBoard<i32>::new(5);
+///let mut board = RoundHexBoard::<i32>::new(5);
 ///assert_eq!(board[(1, 2).into()], 0);
 ///assert_eq!(board.get((3, 3).into()), None);
 ///board[(-2, 3).into()] = 4;
-///assert_eq!(board.get((-2, 3).into()), Some(4));
+///assert_eq!(board.get((-2, 3).into()), Some(&4));
 ///```
 impl<T> RoundHexBoard<T>
 where
