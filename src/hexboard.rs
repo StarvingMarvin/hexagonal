@@ -306,20 +306,35 @@ impl DirectionIterator {
 mod tests {
 
     #[test]
-    fn test_index() {
-        let b: super::RoundHexBoard<i32> = super::RoundHexBoard::new(5);
-        b[(-4, 0).into()];
-        b[(-4, 4).into()];
-        b[(-3, -1).into()];
-        b[(-3, 3).into()];
-        b[(-1, 3).into()];
-        b[(0, 0).into()];
-        b[(1, 2).into()];
-        b[(2, 2).into()];
-        b[(2, -4).into()];
-        b[(4, 0).into()];
-        b[(4, -4).into()];
+    fn test_offsets() {
+        for i in 0..127 {
+            assert_eq!(super::OFFSETS[i * i], 0);
+        }
 
+        for i in 1..127 {
+            assert_eq!(super::OFFSETS[i * i + 1] as usize, i + 1);
+        }
+
+        for i in 2..128 {
+            assert_eq!(super::OFFSETS[i * i - 1] as usize, 3 * i * i - 4 * i + 1);
+        }
+    }
+
+    #[test]
+    fn test_get_round_idx() {
+        for i in 2..127 {
+            let i1 = i as usize - 1;
+            assert_eq!(super::get_round_idx(i as u8, (-i + 1, 0).into()), 0);
+            assert_eq!(super::get_round_idx(i as u8, (-i + 1, i - 1).into()), i1);
+            assert_eq!(super::get_round_idx(i as u8, (0, 0).into()), 3 * i1 * i as usize / 2);
+            assert_eq!(super::get_round_idx(i as u8, (i - 1, 0).into()), 3 * i1 * i as usize);
+        }
+
+    }
+
+    #[test]
+    fn test_get() {
+        let b: super::RoundHexBoard<i32> = super::RoundHexBoard::new(5);
         assert_eq!(b.get((2, 3).into()), None);
         assert_eq!(b.get((1, 3).into()), Some(&0));
     }
