@@ -1,5 +1,6 @@
-use crate::common::Player;
-use crate::hexboard::{RoundHexBoard, Coordinate, Direction, DirectionIterator};
+use crate::common::{HexagonalError, HexagonalResult};
+use crate::game::{Game, GameResult, Player};
+use crate::hexboard::{Coordinate, Direction, DirectionIterator, RoundHexBoard};
 use std::cmp::Ordering;
 
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
@@ -40,57 +41,54 @@ pub enum TumbleweedMove {
     Setup(Coordinate, Coordinate),
     Swap,
     Play(Coordinate),
-    Pass
+    Pass,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Tumbleweed {
     consecutive_passes: u8,
     pub current: Player,
     pub valid_moves: Vec<TumbleweedMove>,
-    // last_move: (TumbleweedPlayer, u8, TumbleweedMove),
     played_moves: Vec<TumbleweedMove>,
     board: RoundHexBoard<TumbleweedField>,
 }
 
-impl Tumbleweed {
+impl Game for Tumbleweed {
+    type Move = TumbleweedMove;
 
-    pub fn game_over(&self) -> bool {
+    fn game_over(&self) -> bool {
         self.consecutive_passes >= 2 || self.valid_moves.is_empty()
     }
 
-    pub fn result(&self) -> i32 {
+    fn result(&self) -> GameResult {
         let (b, w) = self.score();
         match b.cmp(&w) {
-            Ordering::Less => -1,
-            Ordering::Equal => 0,
-            Ordering::Greater => 1,
+            Ordering::Less => GameResult::WhiteWin,
+            Ordering::Equal => GameResult::Draw,
+            Ordering::Greater => GameResult::BlackWin,
         }
     }
 
-    pub fn valid_moves(&self) -> &[TumbleweedMove] {
+    fn valid_moves(&self) -> &[TumbleweedMove] {
         self.valid_moves.as_slice()
     }
 
-    pub fn play(&mut self, tmove: TumbleweedMove) {
+    fn play(&mut self, tmove: TumbleweedMove) -> HexagonalResult<()> {
         if !self.valid_moves.iter().any(|&x| x == tmove) {
-            // TODO: Return error
-            return;
+            return Err(HexagonalError::new(format!("Invalid move: {:?}", tmove)));
         }
         self.played_moves.push(tmove);
 
         match tmove {
-            TumbleweedMove::Setup(b, w) =>
-                self.setup((0, 0).into(), b, w),
+            TumbleweedMove::Setup(b, w) => self.setup((0, 0).into(), b, w),
             TumbleweedMove::Swap => self.swap_colors(),
             TumbleweedMove::Play(m) => {
                 let stack = self.board[m].los[self.current as usize];
                 self.place(self.current.into(), stack, m);
-            },
+            }
             TumbleweedMove::Pass => {
                 self.consecutive_passes += 1;
-            },
+            }
         };
 
         if tmove != TumbleweedMove::Pass {
@@ -99,20 +97,23 @@ impl Tumbleweed {
 
         self.current = self.next_player();
         self.update_valids();
+        Ok(())
     }
 
-    pub fn current_player(&self) -> Player {
+    fn current_player(&self) -> Player {
         self.current
     }
 
-    pub fn next_player(&self) -> Player {
+    fn next_player(&self) -> Player {
         self.current.opponent()
     }
 
-    pub fn last_move(&self) -> Option<TumbleweedMove> {
+    fn last_move(&self) -> Option<TumbleweedMove> {
         self.played_moves.last().copied()
     }
+}
 
+impl Tumbleweed {
     pub fn new(size: u8) -> Tumbleweed {
         let mut t = Tumbleweed {
             consecutive_passes: 0,
@@ -134,45 +135,45 @@ impl Tumbleweed {
 
     fn update_valids(&mut self) {
         if self.consecutive_passes >= 2 {
-            self.valid_moves =vec![];
+            self.valid_moves = vec![];
             return;
         }
 
         self.valid_moves = match self.last_move() {
-            Some(m) => if let TumbleweedMove::Setup(_, _) = m {
-                let mut valids = self.gen_valids();
-                valids.push(TumbleweedMove::Swap);
-                valids
-            } else {
-                let mut valids = self.gen_valids();
-                valids.push(TumbleweedMove::Pass);
-                valids
-            },
-            None => {
-                self.gen_start_moves()
-            },
+            Some(m) => {
+                if let TumbleweedMove::Setup(_, _) = m {
+                    let mut valids = self.gen_valids();
+                    valids.push(TumbleweedMove::Swap);
+                    valids
+                } else {
+                    let mut valids = self.gen_valids();
+                    valids.push(TumbleweedMove::Pass);
+                    valids
+                }
+            }
+            None => self.gen_start_moves(),
         };
-
     }
 
     fn gen_valids(&self) -> Vec<TumbleweedMove> {
-        self
-        .board
-        .iter_coord_fields()
-        .filter(|(_, field)| {
-            let lc = field.los[self.current as usize];
-            let lo = field.los[self.current.opponent() as usize];
-            (lc > field.stack)
-                && (lc >= lo)
-                && (lc < 6)
-                && !(field.color == Some(self.current.into()) && (lc > lo + 1))
-        })
-        .map(|(coord, _)| TumbleweedMove::Play(coord))
-        .collect()
+        self.board
+            .iter_coord_fields()
+            .filter(|(_, field)| {
+                let lc = field.los[self.current as usize];
+                let lo = field.los[self.current.opponent() as usize];
+                (lc > field.stack)
+                    && (lc >= lo)
+                    && (lc < 6)
+                    && !(field.color == Some(self.current.into()) && (lc > lo + 1))
+            })
+            .map(|(coord, _)| TumbleweedMove::Play(coord))
+            .collect()
     }
 
     fn gen_start_moves(&self) -> Vec<TumbleweedMove> {
-        let mut ret = Vec::with_capacity((self.board.as_slice().len() - 1) * (self.board.as_slice().len() - 2));
+        let mut ret = Vec::with_capacity(
+            (self.board.as_slice().len() - 1) * (self.board.as_slice().len() - 2),
+        );
         for b in self.board.iter_coords() {
             if *b == (0, 0).into() {
                 continue;
@@ -224,12 +225,7 @@ impl Tumbleweed {
         (pointsb, pointsw)
     }
 
-    fn setup(
-        &mut self,
-        neutral: Coordinate,
-        black: Coordinate,
-        white: Coordinate,
-    ) {
+    fn setup(&mut self, neutral: Coordinate, black: Coordinate, white: Coordinate) {
         self.place(TumbleweedPiece::Neutral, 2, neutral);
         self.place(TumbleweedPiece::Black, 1, black);
         self.place(TumbleweedPiece::White, 1, white);
@@ -238,7 +234,6 @@ impl Tumbleweed {
     pub fn board(&self) -> &RoundHexBoard<TumbleweedField> {
         &self.board
     }
-
 }
 
 fn update_los(
@@ -289,7 +284,10 @@ fn update_los(
                 board[c].los[oppo as usize] -= 1;
                 board[c].los[color as usize] += 1;
             }
-        } else if (other_piece_l.is_none()) || (other_piece_l == Some(TumbleweedPiece::Neutral)) || (prev_color == Some(TumbleweedPiece::Neutral)) {
+        } else if (other_piece_l.is_none())
+            || (other_piece_l == Some(TumbleweedPiece::Neutral))
+            || (prev_color == Some(TumbleweedPiece::Neutral))
+        {
             for c in to_update_r {
                 board[c].los[color as usize] += 1;
             }
@@ -300,11 +298,13 @@ fn update_los(
                 board[c].los[oppo as usize] -= 1;
                 board[c].los[color as usize] += 1;
             }
-        } else if (other_piece_r.is_none()) || (other_piece_r == Some(TumbleweedPiece::Neutral)) || (prev_color == Some(TumbleweedPiece::Neutral)) {
+        } else if (other_piece_r.is_none())
+            || (other_piece_r == Some(TumbleweedPiece::Neutral))
+            || (prev_color == Some(TumbleweedPiece::Neutral))
+        {
             for c in to_update_l {
                 board[c].los[color as usize] += 1;
             }
         }
     }
-
 }
