@@ -110,6 +110,11 @@ impl<'a, T> Iterator for IterCoordField<'a, T> {
         }
     }
 
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let ret = self.fields.len() - self.idx;
+        (ret, Some(ret))
+    }
+
 }
 
 #[inline]
