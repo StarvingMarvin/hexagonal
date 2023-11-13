@@ -18,10 +18,10 @@ impl<T> FieldTrait for T where T: PartialEq + Clone + Hash + std::fmt::Debug + D
 //
 // Finally a `get_round_idx` translates (x, y) coordinate to index of a flat array by getting xth offset for board size s and
 // adding y to that
-static OFFSETS: [u16; 128*128] = init_offsets();
+static OFFSETS: [u16; 128 * 128] = init_offsets();
 
-const fn init_offsets() -> [u16; 128*128] {
-    let mut res = [0; 128*128];
+const fn init_offsets() -> [u16; 128 * 128] {
+    let mut res = [0; 128 * 128];
     let mut i: i16 = 1;
     while i < 128 {
         let mut cnt = 0;
@@ -30,14 +30,10 @@ const fn init_offsets() -> [u16; 128*128] {
         let mut a = -i_1;
         while a <= i {
             res[(start + a + i_1) as usize] = cnt;
-            cnt += if a < 0 {
-                2 * i + a - 1
-            } else {
-                2 * i - a - 1
-            } as u16;
+            cnt += (2 * i - a.abs() - 1) as u16;
             a += 1;
         }
-        i+= 1;
+        i += 1;
     }
     res
 }
@@ -88,17 +84,16 @@ fn get_coords(board_size: u8) -> &'static [Coordinate] {
             v.into_boxed_slice()
         })
     }
-
 }
 
 pub struct IterCoordField<'a, T> {
     size: u8,
     fields: &'a [T],
-    idx: usize
+    idx: usize,
 }
 
 impl<'a, T> Iterator for IterCoordField<'a, T> {
-    type Item=(Coordinate, &'a T);
+    type Item = (Coordinate, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx < self.fields.len() {
@@ -114,7 +109,6 @@ impl<'a, T> Iterator for IterCoordField<'a, T> {
         let ret = self.fields.len() - self.idx;
         (ret, Some(ret))
     }
-
 }
 
 #[inline]
@@ -124,11 +118,11 @@ fn max_coord(index: Coordinate) -> u8 {
 
 #[derive(Debug, Clone)]
 pub struct RoundHexBoard<T>
-    where
-    T: FieldTrait
+where
+    T: FieldTrait,
 {
     size: u8,
-    board: Box<[T]>
+    board: Box<[T]>,
 }
 
 /// A 'round' (actually hexagonal) game board used in games like Havannah and Tumbleweed.
@@ -161,7 +155,6 @@ impl<T> RoundHexBoard<T>
 where
     T: FieldTrait,
 {
-
     /// Constructs a new instance of a given size. In all realistic scenatios
     /// size will be in roughly 6-12 range so instead of returning Result,
     /// the method will panic if size is greater than 127, which is well above
@@ -176,7 +169,7 @@ where
 
         RoundHexBoard {
             size,
-            board: board.into_boxed_slice()
+            board: board.into_boxed_slice(),
         }
     }
 
@@ -219,8 +212,12 @@ where
     }
 
     /// An iterator over the `(Coordinate, &T)` touples.
-    pub fn iter_coord_fields(&self) -> IterCoordField<'_, T>{
-        IterCoordField { size: self.size, fields: &self.board, idx: 0 }
+    pub fn iter_coord_fields(&self) -> IterCoordField<'_, T> {
+        IterCoordField {
+            size: self.size,
+            fields: &self.board,
+            idx: 0,
+        }
     }
 
     // A safe way to access a field. If coordinate is not valid returns None.
@@ -237,7 +234,6 @@ where
     pub fn as_slice(&self) -> &[T] {
         &self.board
     }
-
 }
 
 impl<T: FieldTrait> Index<Coordinate> for RoundHexBoard<T> {
@@ -272,7 +268,7 @@ impl<T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
 ///```
 pub struct DirectionIterator {
     coord: Coordinate,
-    dir: Direction
+    dir: Direction,
 }
 
 impl Iterator for DirectionIterator {
@@ -283,10 +279,16 @@ impl Iterator for DirectionIterator {
         match self.dir {
             Direction::YZ => self.coord.y += 1,
             Direction::XZ => self.coord.x += 1,
-            Direction::XY => { self.coord.x += 1; self.coord.y -= 1 },
+            Direction::XY => {
+                self.coord.x += 1;
+                self.coord.y -= 1
+            }
             Direction::ZY => self.coord.y -= 1,
             Direction::ZX => self.coord.x -= 1,
-            Direction::YX => { self.coord.x -= 1; self.coord.y += 1 },
+            Direction::YX => {
+                self.coord.x -= 1;
+                self.coord.y += 1
+            }
         }
         Some(ret)
     }
@@ -298,7 +300,7 @@ impl Iterator for DirectionIterator {
 
 impl DirectionIterator {
     pub fn new(start: Coordinate, dir: Direction) -> Self {
-        Self{coord: start, dir}
+        Self { coord: start, dir }
     }
 }
 
@@ -326,10 +328,15 @@ mod tests {
             let i1 = i as usize - 1;
             assert_eq!(super::get_round_idx(i as u8, (-i + 1, 0).into()), 0);
             assert_eq!(super::get_round_idx(i as u8, (-i + 1, i - 1).into()), i1);
-            assert_eq!(super::get_round_idx(i as u8, (0, 0).into()), 3 * i1 * i as usize / 2);
-            assert_eq!(super::get_round_idx(i as u8, (i - 1, 0).into()), 3 * i1 * i as usize);
+            assert_eq!(
+                super::get_round_idx(i as u8, (0, 0).into()),
+                3 * i1 * i as usize / 2
+            );
+            assert_eq!(
+                super::get_round_idx(i as u8, (i - 1, 0).into()),
+                3 * i1 * i as usize
+            );
         }
-
     }
 
     #[test]
