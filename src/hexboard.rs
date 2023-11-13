@@ -258,6 +258,18 @@ impl<T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
 
 /// Generate successive coordinates in a given direction, from a given coordinate (inclusive).
 /// This is an ifinite iterator.
+///
+///```
+///use hex2d::Direction;
+///use hexagonal::DirectionIterator;
+///let mut di = DirectionIterator::new((2, 3).into(), Direction::XZ);
+///let mut nxt = di.next().unwrap();
+///assert_eq!((nxt.x, nxt.y, nxt.z()), (2, 3, -5));
+///nxt = di.next().unwrap();
+///assert_eq!((nxt.x, nxt.y, nxt.z()), (3, 3, -6));
+///nxt = di.next().unwrap();
+///assert_eq!((nxt.x, nxt.y, nxt.z()), (4, 3, -7));
+///```
 pub struct DirectionIterator {
     coord: Coordinate,
     dir: Direction
