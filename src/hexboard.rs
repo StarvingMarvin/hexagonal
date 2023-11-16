@@ -1,10 +1,13 @@
 use crate::common::{HexagonalError, HexagonalResult};
-pub use hex2d::{Coordinate, Direction};
+use hex2d::Coordinate;
+pub use hex2d::Direction;
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
 pub trait FieldTrait: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
 impl<T> FieldTrait for T where T: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
+
+pub type BoardCoord = Coordinate<i8>;
 
 // RoundHexBoard saves all the data into a contiguous slice so it needs to
 // resolve an (x, y) coordinate into the slice index. Since not every row has
@@ -40,13 +43,18 @@ const fn init_offsets() -> [u16; 128 * 128] {
 }
 
 #[inline]
-fn get_round_idx(board_size: u8, index: Coordinate) -> usize {
-    let is1 = board_size as i32 - 1;
-    let us1 = is1 as usize;
-    let ux = (index.x + is1) as usize;
-    let xneg = (index.x >> 31) & 1;
-    let uy = (index.y + is1 + xneg * index.x) as usize;
-    OFFSETS[us1 * us1 + ux] as usize + uy
+fn get_offsets(s: usize) -> &'static [u16] {
+    &OFFSETS[(s - 1) * (s - 1)..s * s]
+}
+
+#[inline]
+fn get_round_idx(board_size: u8, index: BoardCoord, offsets: &[u16]) -> usize {
+    let is1 = board_size as i16 - 1;
+    let ux = (index.x as i16 + is1) as usize;
+    // ix = index.x if x < 0 else 0
+    let ix = ((index.x >> 7) & index.x) as i16;
+    let uy = (ix + index.y as i16 + is1) as usize;
+    offsets[ux] as usize + uy
 }
 
 const SIZES: [usize; 127] = init_sizes();
@@ -65,25 +73,25 @@ pub type IterField<'a, T> = std::slice::Iter<'a, T>;
 pub type IterFieldMut<'a, T> = std::slice::IterMut<'a, T>;
 pub type IntoIter<T> = std::vec::IntoIter<T>;
 
-pub type IterCoord<'a> = std::slice::Iter<'a, Coordinate>;
+pub type IterCoord<'a> = std::slice::Iter<'a, BoardCoord>;
 
 // Is there a better way to do this?
-static mut COORDS: [Option<Box<[Coordinate]>>; 127] = init_coords();
-const fn init_coords() -> [Option<Box<[Coordinate]>>; 127] {
+static mut COORDS: [Option<Box<[BoardCoord]>>; 127] = init_coords();
+const fn init_coords() -> [Option<Box<[BoardCoord]>>; 127] {
     unsafe {
-        const SIZE: usize = std::mem::size_of::<[Option<Box<[Coordinate]>>; 127]>();
+        const SIZE: usize = std::mem::size_of::<[Option<Box<[BoardCoord]>>; 127]>();
         let ret = [0_u8; SIZE];
-        std::mem::transmute::<[u8; SIZE], [Option<Box<[Coordinate]>>; 127]>(ret)
+        std::mem::transmute::<[u8; SIZE], [Option<Box<[BoardCoord]>>; 127]>(ret)
     }
 }
 
-fn get_coords(board_size: u8) -> &'static [Coordinate] {
+fn get_coords(board_size: u8) -> &'static [BoardCoord] {
     let s = board_size as usize;
     unsafe {
         let c = &mut COORDS[s];
         c.get_or_insert_with(|| {
             let mut v = Vec::with_capacity(3 * s * (s - 1) + 1);
-            let is1 = board_size as i32 - 1;
+            let is1 = board_size as i8 - 1;
 
             for i in -is1..=is1 {
                 let (lb, ub) = if i < 0 {
@@ -102,17 +110,17 @@ fn get_coords(board_size: u8) -> &'static [Coordinate] {
 }
 
 pub struct IterCoordField<'a, T> {
-    size: u8,
     fields: &'a [T],
+    coords: &'a [BoardCoord],
     idx: usize,
 }
 
 impl<'a, T> Iterator for IterCoordField<'a, T> {
-    type Item = (Coordinate, &'a T);
+    type Item = (BoardCoord, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.idx < self.fields.len() {
-            let ret = (get_coords(self.size)[self.idx], &self.fields[self.idx]);
+            let ret = (self.coords[self.idx], &self.fields[self.idx]);
             self.idx += 1;
             Some(ret)
         } else {
@@ -133,7 +141,7 @@ where
     T: FieldTrait,
 {
     board: &'a RoundHexBoard<T>,
-    ncoord: [Coordinate; 6],
+    ncoord: [BoardCoord; 6],
     idx: usize,
 }
 
@@ -141,7 +149,7 @@ impl<'a, T> Iterator for IterNeighbours<'a, T>
 where
     T: FieldTrait,
 {
-    type Item = (Coordinate, &'a T);
+    type Item = (BoardCoord, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.idx < 6 && !self.board.valid_coord(self.ncoord[self.idx]) {
@@ -163,7 +171,7 @@ where
 }
 
 #[inline]
-fn max_coord(index: Coordinate) -> u8 {
+fn max_coord(index: BoardCoord) -> u8 {
     index.x.abs().max(index.y.abs()).max(index.z().abs()) as u8
 }
 
@@ -200,6 +208,7 @@ where
 {
     size: u8,
     board: Box<[T]>,
+    offsets: &'static [u16],
 }
 
 impl<T> RoundHexBoard<T>
@@ -221,6 +230,7 @@ where
         RoundHexBoard {
             size,
             board: board.into_boxed_slice(),
+            offsets: get_offsets(s),
         }
     }
 
@@ -228,7 +238,7 @@ where
     /// uses [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
     /// with the origin at central field, coordinate is valid if it's less than
     /// `size` away along any axis: `max(|x|, |y|, |-x - y|) < size`.
-    pub fn valid_coord(&self, coord: Coordinate) -> bool {
+    pub fn valid_coord(&self, coord: BoardCoord) -> bool {
         max_coord(coord) < self.size
     }
 
@@ -262,11 +272,15 @@ where
         get_coords(self.size).iter()
     }
 
-    /// An iterator over the `(Coordinate, &T)` touples.
+    pub fn get_coords(&self) -> &'static [BoardCoord] {
+        get_coords(self.size())
+    }
+
+    /// An iterator over the `(BoardCoord, &T)` touples.
     pub fn iter_coord_fields(&self) -> IterCoordField<'_, T> {
         IterCoordField {
-            size: self.size,
             fields: &self.board,
+            coords: get_coords(self.size),
             idx: 0,
         }
     }
@@ -286,7 +300,7 @@ where
     ///assert_eq!((nxt.0.x, nxt.0.y, *nxt.1), (1, 4, 60));
     ///assert_eq!(nit.next(), None);
     ///```
-    pub fn iter_neighbours(&self, coord: Coordinate) -> IterNeighbours<T> {
+    pub fn iter_neighbours(&self, coord: BoardCoord) -> IterNeighbours<T> {
         IterNeighbours {
             board: self,
             ncoord: coord.neighbors(),
@@ -295,12 +309,12 @@ where
     }
 
     /// A safe way to access a field. If coordinate is not valid returns None.
-    pub fn get(&self, index: Coordinate) -> Option<&T> {
+    pub fn get(&self, index: BoardCoord) -> Option<&T> {
         self.valid_coord(index).then(|| &self[index])
     }
 
     /// A safe way to access a field. If coordinate is not valid returns None.
-    pub fn get_mut(&mut self, index: Coordinate) -> Option<&mut T> {
+    pub fn get_mut(&mut self, index: BoardCoord) -> Option<&mut T> {
         self.valid_coord(index).then(|| &mut self[index])
     }
 
@@ -323,6 +337,7 @@ impl<T: FieldTrait> TryFrom<Box<[T]>> for RoundHexBoard<T> {
             Ok(s) => Ok(RoundHexBoard {
                 size: s as u8,
                 board: value,
+                offsets: get_offsets(s),
             }),
             Err(_) => Err(HexagonalError::new(format!(
                 "Invalid slice length {} for RoundHexBoard",
@@ -340,6 +355,7 @@ impl<T: FieldTrait> TryFrom<&[T]> for RoundHexBoard<T> {
             Ok(s) => Ok(RoundHexBoard {
                 size: s as u8,
                 board: value.into(),
+                offsets: get_offsets(s),
             }),
             Err(_) => Err(HexagonalError::new(format!(
                 "Invalid slice length {} for RoundHexBoard",
@@ -363,18 +379,18 @@ impl<T: FieldTrait> DerefMut for RoundHexBoard<T> {
     }
 }
 
-impl<T: FieldTrait> Index<Coordinate> for RoundHexBoard<T> {
+impl<T: FieldTrait> Index<BoardCoord> for RoundHexBoard<T> {
     type Output = T;
 
-    fn index(&self, index: Coordinate) -> &Self::Output {
-        let idx: usize = get_round_idx(self.size, index);
+    fn index(&self, index: BoardCoord) -> &Self::Output {
+        let idx: usize = get_round_idx(self.size, index, self.offsets);
         &self.board[idx]
     }
 }
 
-impl<T: FieldTrait> IndexMut<Coordinate> for RoundHexBoard<T> {
-    fn index_mut(&mut self, index: Coordinate) -> &mut Self::Output {
-        let idx: usize = get_round_idx(self.size, index);
+impl<T: FieldTrait> IndexMut<BoardCoord> for RoundHexBoard<T> {
+    fn index_mut(&mut self, index: BoardCoord) -> &mut Self::Output {
+        let idx: usize = get_round_idx(self.size, index, self.offsets);
         &mut self.board[idx]
     }
 }
@@ -396,6 +412,7 @@ macro_rules! impl_from_arr {
                 RoundHexBoard {
                     size: $size,
                     board: Box::new(value),
+                    offsets: get_offsets($size),
                 }
             }
         }
@@ -433,12 +450,12 @@ impl_from_arr! {16}
 ///assert_eq!((nxt.x, nxt.y, nxt.z()), (4, 3, -7));
 ///```
 pub struct DirectionIterator {
-    coord: Coordinate,
+    coord: BoardCoord,
     dir: Direction,
 }
 
 impl Iterator for DirectionIterator {
-    type Item = Coordinate;
+    type Item = BoardCoord;
 
     fn next(&mut self) -> Option<Self::Item> {
         let ret = self.coord;
@@ -452,7 +469,7 @@ impl Iterator for DirectionIterator {
 }
 
 impl DirectionIterator {
-    pub fn new(start: Coordinate, dir: Direction) -> Self {
+    pub fn new(start: BoardCoord, dir: Direction) -> Self {
         Self { coord: start, dir }
     }
 }
@@ -479,14 +496,21 @@ mod tests {
     fn test_get_round_idx() {
         for i in 2..127 {
             let i1 = i as usize - 1;
-            assert_eq!(super::get_round_idx(i as u8, (-i + 1, 0).into()), 0);
-            assert_eq!(super::get_round_idx(i as u8, (-i + 1, i - 1).into()), i1);
+            let offsets = super::get_offsets(i as usize);
             assert_eq!(
-                super::get_round_idx(i as u8, (0, 0).into()),
+                super::get_round_idx(i as u8, (-i + 1, 0).into(), offsets),
+                0
+            );
+            assert_eq!(
+                super::get_round_idx(i as u8, (-i + 1, i - 1).into(), offsets),
+                i1
+            );
+            assert_eq!(
+                super::get_round_idx(i as u8, (0, 0).into(), offsets),
                 3 * i1 * i as usize / 2
             );
             assert_eq!(
-                super::get_round_idx(i as u8, (i - 1, 0).into()),
+                super::get_round_idx(i as u8, (i - 1, 0).into(), offsets),
                 3 * i1 * i as usize
             );
         }
