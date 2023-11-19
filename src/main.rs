@@ -11,7 +11,7 @@ fn main() {
 
     for _ in 0..1000 {
         let mut twgame = Tumbleweed::new(10);
-        let setup = twgame.start_move_iter().choose(&mut rng).unwrap();
+        let setup = GenStartMoves::new(twgame.board().get_coords()).choose(&mut rng).unwrap();
         twgame.play_unchecked(setup);
 
         while !twgame.game_over() {

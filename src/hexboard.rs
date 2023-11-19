@@ -85,7 +85,7 @@ const fn init_coords() -> [Option<Box<[BoardCoord]>>; 127] {
     }
 }
 
-fn get_coords(board_size: u8) -> &'static [BoardCoord] {
+pub fn get_coords(board_size: u8) -> &'static [BoardCoord] {
     let s = board_size as usize;
     unsafe {
         let c = &mut COORDS[s];

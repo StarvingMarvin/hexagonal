@@ -3,6 +3,7 @@ use crate::game::{Game, GameResult, Player};
 use crate::hexboard::{BoardCoord, Direction, DirectionIterator, RoundHexBoard};
 use std::cmp::Ordering;
 use std::iter::once;
+use std::cell::OnceCell;
 
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
 pub enum TumbleweedPiece {
@@ -117,7 +118,7 @@ impl ExactSizeIterator for GenStartMoves {}
 pub struct Tumbleweed {
     consecutive_passes: u8,
     pub current: Player,
-    valid_moves: Vec<TumbleweedMove>,
+    valid_moves: OnceCell<Vec<TumbleweedMove>>,
     played_moves: Vec<TumbleweedMove>,
     board: RoundHexBoard<TumbleweedField>,
     los: RoundHexBoard<[u8; 2]>,
@@ -140,11 +141,34 @@ impl Game for Tumbleweed {
     }
 
     fn valid_moves(&self) -> &[TumbleweedMove] {
-        self.valid_moves.as_slice()
+        self.valid_moves.get_or_init(||
+            GenStartMoves::new(self.board().get_coords()).collect()
+        ).as_slice()
+    }
+
+    fn is_valid(&self, mv: Self::Move) -> bool {
+        match self.played_moves.len() {
+            0 => matches!(mv,
+                     TumbleweedMove::Setup(b, w)
+                     if b != (0, 0).into() &&
+                         w != (0, 0).into() &&
+                         b != w
+            ),
+            1 => match mv {
+                TumbleweedMove::Swap => true,
+                TumbleweedMove::Play(c) if self.los[c][1] % 2 > 0 => true,
+                _ => false
+            },
+            _ => !self.game_over() && match mv {
+                TumbleweedMove::Pass => true,
+                TumbleweedMove::Play(c) if self.los[c][self.current as usize] % 2 > 0 => true,
+                _ => false
+            }
+        }
     }
 
     fn play(&mut self, tmove: TumbleweedMove) -> HexagonalResult<()> {
-        if !self.valid_moves.iter().any(|&x| x == tmove) {
+        if !self.is_valid(tmove) {
             return Err(HexagonalError::new(format!("Invalid move: {:?}", tmove)));
         }
         self.play_unchecked(tmove);
@@ -171,7 +195,7 @@ impl Tumbleweed {
             board: RoundHexBoard::new(size),
             los: RoundHexBoard::new(size),
             current: Player::Black,
-            valid_moves: vec![],
+            valid_moves: OnceCell::new(),
             played_moves: vec![],
         };
         // TODO: what to do if someone insists on full list of `Setup` moves?
@@ -212,44 +236,27 @@ impl Tumbleweed {
     }
 
     fn update_valids(&mut self) {
+        let last = &self.last_move();
+        let los = &self.los;
+        let coords = &self.board.get_coords();
+        self.valid_moves.get_or_init(|| vec![]);
+        let valid = &mut self.valid_moves.get_mut().unwrap();
+        valid.clear();
         if self.consecutive_passes >= 2 {
-            self.valid_moves = vec![];
             return;
         }
 
-        match self.last_move() {
+        match last {
             Some(m) => {
+                valid.extend(gen_valids(los, self.current as usize));
                 if let TumbleweedMove::Setup(_, _) = m {
-                    self.gen_valids();
-                    self.valid_moves.push(TumbleweedMove::Swap);
-                    self.valid_moves.shrink_to(self.valid_moves.len() * 3 / 2);
+                    valid.push(TumbleweedMove::Swap);
                 } else {
-                    self.gen_valids();
-                    self.valid_moves.push(TumbleweedMove::Pass);
+                    valid.push(TumbleweedMove::Pass);
                 }
             }
-            None => self.gen_start_moves(),
+            None => valid.extend(GenStartMoves::new(coords)),
         };
-    }
-
-    fn gen_valids(&mut self) {
-        self.valid_moves.clear();
-        self.valid_moves.extend(
-            self.board
-                .iter_coords()
-                .zip(self.los.iter_fields())
-                .filter_map(|(&coord, &los)| {
-                    ((los[self.current as usize] % 2) > 0).then_some(TumbleweedMove::Play(coord))
-                }),
-        );
-    }
-
-    pub fn start_move_iter(&self) -> GenStartMoves {
-        GenStartMoves::new(self.board.get_coords())
-    }
-
-    fn gen_start_moves(&mut self) {
-        self.valid_moves = GenStartMoves::new(self.board.get_coords()).collect();
     }
 
     pub fn place(&mut self, color: TumbleweedPiece, stack: u8, coord: BoardCoord) {
@@ -303,6 +310,13 @@ impl Tumbleweed {
     pub fn played_moves(&self) -> &[TumbleweedMove] {
         &self.played_moves
     }
+}
+
+pub fn gen_valids(los: &RoundHexBoard<[u8; 2]>, color: usize) -> impl Iterator<Item=TumbleweedMove> + '_ {
+    los.iter_coord_fields()
+        .filter_map(move |(coord, &los)| {
+            ((los[color] % 2) > 0).then_some(TumbleweedMove::Play(coord))
+        })
 }
 
 fn update_los(
@@ -388,23 +402,85 @@ fn update_los(
         }
 
         for &c in once(&coord).chain(to_update_r.iter()).chain(to_update_l.iter()) {
-            let lc = los[c][color as usize];
-            let lo = los[c][oppo as usize];
+            let lc = los[c][color as usize] / 2;
+            let lo = los[c][oppo as usize] / 2;
             let field = &board[c];
             let validc = ((lc > field.stack)
                         && (lc >= lo)
-                        && (lc < 12)
+                        && (lc < 6)
                         && !(field.color == Some(color) && (lc > lo + 1))) as u8;
             los[c][color as usize] &= 254;
             los[c][color as usize] |= validc;
 
             let valido = ((lo > field.stack)
                         && (lo >= lc)
-                        && (lo < 12)
+                        && (lo < 6)
                         && !(field.color == Some(oppo) && (lo > lc + 1))) as u8;
 
             los[c][oppo as usize] &= 254;
             los[c][oppo as usize] |= valido;
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use crate::hexboard::*;
+
+    #[test]
+    fn test_gen_setup() {
+        let mut gen = GenStartMoves::new(get_coords(5));
+        let mut gen2 = GenStartMoves::new(get_coords(5));
+        for _ in 0..5 {
+            let _ = gen2.next();
+        }
+        assert_eq!(gen2.next(), gen.nth(5));
+
+        for _ in 0..1500 {
+            let _ = gen2.next();
+        }
+
+        assert_eq!(gen2.next(), gen.nth(1500));
+
+        let rem = gen2.len();
+        for _ in 0..rem -1 {
+            let _ = gen2.next();
+        }
+
+        let last = gen2.next();
+        assert_eq!(last, gen.nth(rem - 1));
+        assert!(last.is_some());
+        assert!(gen2.next().is_none());
+        assert!(gen.next().is_none());
+    }
+
+    #[test]
+    fn test_tumbleweed() {
+        let mut game = Tumbleweed::new(5);
+
+        game.play(TumbleweedMove::Setup((1, 1).into(), (-1, -2).into())).unwrap();
+        for (c, e) in game.los.iter_coord_fields() {
+            if c == (1, 1).into() || c == (-1, -2).into(){
+                continue;
+            }
+            match (c.x, c.y, c.z()) {
+                (1, _, _) => assert_eq!(e[0], 3),
+                (_, 1, _) => assert_eq!(e[0], 3),
+                (_, _, -2) => assert_eq!(e[0], 3),
+                _ => assert_eq!(e[0], 0),
+            }
+
+            match (c.x, c.y, c.z()) {
+                (-1, _, _) => assert_eq!(e[1], 3),
+                (_, -2, _) => assert_eq!(e[1], 3),
+                (_, _, 3) => assert_eq!(e[1], 3),
+                _ => assert_eq!(e[1], 0),
+            }
+        }
+
+        assert!(game.play(TumbleweedMove::Play((2, 2).into())).is_err());
     }
 }
