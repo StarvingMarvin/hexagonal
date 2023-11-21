@@ -43,12 +43,12 @@ const fn init_offsets() -> [u16; 128 * 128] {
 }
 
 #[inline]
-fn get_offsets(s: usize) -> &'static [u16] {
+pub fn get_offsets(s: usize) -> &'static [u16] {
     &OFFSETS[(s - 1) * (s - 1)..s * s]
 }
 
 #[inline]
-fn get_round_idx(board_size: u8, index: BoardCoord, offsets: &[u16]) -> usize {
+pub fn get_round_idx(board_size: u8, index: BoardCoord, offsets: &[u16]) -> usize {
     let is1 = board_size as i16 - 1;
     let ux = (index.x as i16 + is1) as usize;
     // ix = index.x if x < 0 else 0
@@ -109,6 +109,9 @@ pub fn get_coords(board_size: u8) -> &'static [BoardCoord] {
     }
 }
 
+// This is roughly equivalent to coords.iter().zip(fielrs.itre()),
+// but the zip is actually slightly faster so it probably shouldn't
+// be used in a hot path.
 pub struct IterCoordField<'a, T> {
     fields: &'a [T],
     coords: &'a [BoardCoord],
