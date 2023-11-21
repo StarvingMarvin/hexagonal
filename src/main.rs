@@ -33,6 +33,10 @@ fn main() {
             moves += twgame.played_moves().len();
         }
 
-        println!("{size}: {nfields} fields, {} moves, {} ms", moves / 1000, now.elapsed().as_millis());
+        println!(
+            "{size}: {nfields} fields, {} moves, {} us",
+            moves / 1000,
+            now.elapsed().as_millis()
+        );
     }
 }

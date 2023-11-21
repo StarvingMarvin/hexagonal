@@ -279,6 +279,10 @@ where
         get_coords(self.size())
     }
 
+    pub fn get_offsets(&self) -> &'static [u16] {
+        self.offsets
+    }
+
     /// An iterator over the `(BoardCoord, &T)` touples.
     pub fn iter_coord_fields(&self) -> IterCoordField<'_, T> {
         IterCoordField {
