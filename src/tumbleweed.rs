@@ -38,19 +38,10 @@ pub struct TumbleweedField {
     pub color: Option<TumbleweedPiece>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TumbleweedLoSField([u8; 2]);
+pub trait TumbleweedLoSField: Clone + std::fmt::Debug + Default + PartialEq + Eq + std::hash::Hash + Sync + Send {
+    fn is_valid(&self, color: Player) -> bool;
 
-impl TumbleweedLoSField {
-    #[inline]
-    fn is_valid(&self, color: Player) -> bool {
-        self.0[color as usize] & 1 == 1
-    }
-
-    #[inline]
-    fn los(&self, color: Player) -> u8 {
-        self.0[color as usize] / 2
-    }
+    fn los(&self, color: Player) -> u8;
 
     #[inline]
     fn update_valid(&mut self, field: &TumbleweedField) -> [bool; 2] {
@@ -73,6 +64,32 @@ impl TumbleweedLoSField {
         self.set_valid(Player::White, validw);
 
         [!was_valid_b && validb, !was_valid_w && validw]
+    }
+
+    fn swap(&mut self);
+
+    fn inc(&mut self, color: TumbleweedPiece, i: u8);
+
+    fn dec(&mut self, color: TumbleweedPiece, i: u8);
+
+    fn reset_valid(&mut self, color: Player);
+
+    fn set_valid(&mut self, color: Player, valid: bool);
+}
+
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TumbleweedLoSField2([u8; 2]);
+
+impl TumbleweedLoSField for TumbleweedLoSField2 {
+    #[inline]
+    fn is_valid(&self, color: Player) -> bool {
+        self.0[color as usize] & 1 == 1
+    }
+
+    #[inline]
+    fn los(&self, color: Player) -> u8 {
+        self.0[color as usize] / 2
     }
 
     #[inline]
@@ -99,6 +116,88 @@ impl TumbleweedLoSField {
     fn set_valid(&mut self, color: Player, valid: bool) {
         self.0[color as usize] &= 254;
         self.0[color as usize] |= valid as u8;
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TumbleweedLoSField1(u8);
+
+impl TumbleweedLoSField for TumbleweedLoSField1 {
+    #[inline]
+    fn is_valid(&self, color: Player) -> bool {
+        self.0 & [1, 16][color as usize] > 0
+    }
+
+    #[inline]
+    fn los(&self, color: Player) -> u8 {
+        self.0 >> [1, 5][color as usize] & 0b0111
+    }
+
+    #[inline]
+    fn swap(&mut self) {
+        self.0 = (self.0 & 0b11110000 >> 4) | (self.0 << 4);
+    }
+
+    #[inline]
+    fn inc(&mut self, color: TumbleweedPiece, i: u8) {
+        self.0 += [2, 32][color as usize] * i;
+    }
+
+    #[inline]
+    fn dec(&mut self, color: TumbleweedPiece, i: u8) {
+        self.0 -= [2, 32][color as usize] * i;
+    }
+
+    #[inline]
+    fn reset_valid(&mut self, color: Player) {
+        self.0 &= [0b11111110, 0b11101111][color as usize];
+    }
+
+    #[inline]
+    fn set_valid(&mut self, color: Player, valid: bool) {
+        self.0 &= [0b11111110, 0b11101111][color as usize];
+        self.0 |= [1, 16][color as usize] * valid as u8;
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TumbleweedLoSField4([u8; 2], [bool; 2]);
+
+impl TumbleweedLoSField for TumbleweedLoSField4 {
+    #[inline]
+    fn is_valid(&self, color: Player) -> bool {
+        self.1[color as usize]
+    }
+
+    #[inline]
+    fn los(&self, color: Player) -> u8 {
+        self.0[color as usize]
+    }
+
+    #[inline]
+    fn swap(&mut self) {
+        self.0.reverse();
+        self.1.reverse();
+    }
+
+    #[inline]
+    fn inc(&mut self, color: TumbleweedPiece, i: u8) {
+        self.0[color as usize] += i;
+    }
+
+    #[inline]
+    fn dec(&mut self, color: TumbleweedPiece, i: u8) {
+        self.0[color as usize] -= i;
+    }
+
+    #[inline]
+    fn reset_valid(&mut self, color: Player) {
+        self.1[color as usize] = false;
+    }
+
+    #[inline]
+    fn set_valid(&mut self, color: Player, valid: bool) {
+        self.1[color as usize] = valid;
     }
 }
 
@@ -187,7 +286,7 @@ pub struct Tumbleweed {
     valid_moves: OnceCell<[Vec<TumbleweedMove>; 2]>,
     played_moves: Vec<TumbleweedMove>,
     board: RoundHexBoard<TumbleweedField>,
-    los: RoundHexBoard<TumbleweedLoSField>,
+    los: RoundHexBoard<TumbleweedLoSField1>,
 }
 
 impl Game for Tumbleweed {
@@ -393,7 +492,7 @@ impl Tumbleweed {
         &self.board
     }
 
-    pub fn los(&self) -> &RoundHexBoard<TumbleweedLoSField> {
+    pub fn los(&self) -> &RoundHexBoard<TumbleweedLoSField1> {
         &self.los
     }
 
@@ -404,7 +503,7 @@ impl Tumbleweed {
 
 fn update_los(
     board: &RoundHexBoard<TumbleweedField>,
-    los: &mut RoundHexBoard<TumbleweedLoSField>,
+    los: &mut RoundHexBoard<TumbleweedLoSField1>,
     color: TumbleweedPiece,
     prev_color: Option<TumbleweedPiece>,
     coord: BoardCoord,
@@ -457,7 +556,6 @@ fn update_los(
             let cidx = get_round_idx(bs, cc, offsets);
             let field = &board.as_slice()[cidx];
             let losc = &mut los.as_mut_slice()[cidx];
-            //println!("updown {cc:?}");
             losc.inc(color, losu);
             losc.dec(oppo, losd);
 
@@ -505,7 +603,6 @@ fn los_ud(
         || prev_color == Some(TumbleweedPiece::Neutral)) as u8;
 
     let odown = oppodec as u8;
-    // println!("other {other_piece:?} prev {prev_color:?} {oppo:?} {cup} {odown}");
     (cup, odown)
 }
 
@@ -553,17 +650,25 @@ mod tests {
                 continue;
             }
             match (c.x, c.y, c.z()) {
-                (1, _, _) => assert_eq!(e.0[0], 3, "{:?}", c),
-                (_, 1, _) => assert_eq!(e.0[0], 3, "{:?}", c),
-                (_, _, -2) => assert_eq!(e.0[0], 3, "{:?}", c),
-                _ => assert_eq!(e.0[0], 0, "{:?}", c),
+                (1, _, _) | (_, 1, _) | (_, _, -2) => {
+                    assert!(e.is_valid(Player::Black));
+                    assert_eq!(e.los(Player::Black), 1);
+                }
+                _ => {
+                    assert!(!e.is_valid(Player::Black));
+                    assert_eq!(e.los(Player::Black), 0);
+                },
             }
 
             match (c.x, c.y, c.z()) {
-                (-1, _, _) => assert_eq!(e.0[1], 3, "{:?}", c),
-                (_, -2, _) => assert_eq!(e.0[1], 3, "{:?}", c),
-                (_, _, 3) => assert_eq!(e.0[1], 3, "{:?}", c),
-                _ => assert_eq!(e.0[1], 0, "{:?}", c),
+                (-1, _, _) | (_, -2, _) | (_, _, 3) => {
+                    assert!(e.is_valid(Player::White));
+                    assert_eq!(e.los(Player::White), 1);
+                }
+                _ => {
+                    assert!(!e.is_valid(Player::White));
+                    assert_eq!(e.los(Player::White), 0);
+                }
             }
         }
 
@@ -571,13 +676,21 @@ mod tests {
 
         assert!(game.play(TumbleweedMove::Play((-1, 3).into())).is_ok());
 
-        assert_eq!(game.los[(-1, -3).into()].0[1], 3);
-        assert_eq!(game.los[(-1, -2).into()].0[1], 2);
-        assert_eq!(game.los[(-1, 3).into()].0[1], 2);
-        assert_eq!(game.los[(-1, 4).into()].0[1], 3);
+        assert!(game.los[(-1, -3).into()].is_valid(Player::White));
+        assert_eq!(game.los[(-1, -3).into()].los(Player::White), 1);
+
+        assert!(!game.los[(-1, -2).into()].is_valid(Player::White));
+        assert_eq!(game.los[(-1, -2).into()].los(Player::White), 1);
+
+        assert!(!game.los[(-1, 3).into()].is_valid(Player::White));
+        assert_eq!(game.los[(-1, 3).into()].los(Player::White), 1);
+
+        assert!(game.los[(-1, 4).into()].is_valid(Player::White));
+        assert_eq!(game.los[(-1, 4).into()].los(Player::White), 1);
 
         for i in -1..3 {
-            assert_eq!(game.los[(-1, i).into()].0[1], 5);
+            assert!(game.los[(-1, i).into()].is_valid(Player::White));
+            assert_eq!(game.los[(-1, i).into()].los(Player::White), 2);
         }
     }
 }
