@@ -236,6 +236,19 @@ pub enum TumbleweedMove {
     Pass,
 }
 
+impl From<BoardCoord> for TumbleweedMove {
+    fn from(value: BoardCoord) -> Self {
+        TumbleweedMove::Play(value)
+    }
+}
+
+
+impl From<(BoardCoord, BoardCoord)> for TumbleweedMove {
+    fn from((b, w): (BoardCoord, BoardCoord)) -> Self {
+        TumbleweedMove::Setup(b, w)
+    }
+}
+
 pub struct GenStartMoves {
     coords: &'static [BoardCoord],
     b: usize,
@@ -261,7 +274,7 @@ impl Iterator for GenStartMoves {
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.b < self.coords.len()).then(|| {
-            let ret = TumbleweedMove::Setup(self.coords[self.b], self.coords[self.w]);
+            let ret = (self.coords[self.b], self.coords[self.w]).into();
             self.w += 1;
             while self.w == self.b || self.w == self.zero {
                 self.w += 1;
@@ -589,7 +602,7 @@ fn update_los(
             let new_valid = losc.update_valid(field);
             for i in 0..2 {
                 if new_valid[i] {
-                    ret[i].push(TumbleweedMove::Play(cc));
+                    ret[i].push(cc.into());
                 }
             }
             if let Some(f) = field {
@@ -607,7 +620,7 @@ fn update_los(
             let new_valid = losc.update_valid(field);
             for i in 0..2 {
                 if new_valid[i] {
-                    ret[i].push(TumbleweedMove::Play(board.get_coords()[c]));
+                    ret[i].push(board.get_coords()[c].into());
                 }
             }
         }
