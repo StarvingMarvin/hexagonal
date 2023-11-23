@@ -680,7 +680,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tumbleweed() {
+    fn test_los() {
         let mut game = Tumbleweed::new(5);
 
         game.play(TumbleweedMove::Setup((1, 1).into(), (-1, -2).into()))
@@ -733,4 +733,41 @@ mod tests {
             assert_eq!(game.los[(-1, i).into()].los(Player::White), 2);
         }
     }
+
+    #[test]
+    fn test_tumbleweed() {
+        use rand::prelude::*;
+        use rand_chacha::ChaCha8Rng;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+
+        let mut game = Tumbleweed::new(12);
+        let setup = GenStartMoves::new(game.board().get_coords())
+                .choose(&mut rng)
+                .unwrap();
+        assert!(game.play(setup).is_ok());
+
+        while !game.game_over() {
+            let valid = game.valid_moves().to_owned();
+            for mv in &valid {
+                assert!(game.is_valid(*mv));
+            }
+            for &c in game.board().get_coords() {
+                let mv = c.into();
+                if !valid.contains(&mv) {
+                    assert!(game.play(mv).is_err());
+                }
+            }
+            let mv: TumbleweedMove = *valid.choose(&mut rng).unwrap();
+            match mv {
+                TumbleweedMove::Swap | TumbleweedMove::Pass if valid.len() > 1 => {
+                    continue;
+                }
+                _ => (),
+            }
+            assert!(game.play(mv).is_ok());
+        }
+
+    }
+
 }
