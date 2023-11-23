@@ -5,6 +5,8 @@ use crate::hexboard::{
 };
 use std::cell::OnceCell;
 use std::cmp::Ordering;
+use std::num::NonZeroU8;
+
 
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
 pub enum TumbleweedPiece {
@@ -32,10 +34,28 @@ impl From<Player> for TumbleweedPiece {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+trait MaybeField {
+    fn stack(&self) -> u8;
+    fn color(&self) ->Option<TumbleweedPiece>;
+}
+
+impl MaybeField for Option<TumbleweedField> {
+    fn stack(&self) -> u8 {
+        match self {
+            None => 0,
+            Some(x) => x.stack.into()
+        }
+    }
+
+    fn color(&self) -> Option<TumbleweedPiece> {
+        self.as_ref().map(|f| f.color)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TumbleweedField {
-    pub stack: u8,
-    pub color: Option<TumbleweedPiece>,
+    pub stack: NonZeroU8,
+    pub color: TumbleweedPiece,
 }
 
 pub trait TumbleweedLoSField: Clone + std::fmt::Debug + Default + PartialEq + Eq + std::hash::Hash + Sync + Send {
@@ -44,22 +64,29 @@ pub trait TumbleweedLoSField: Clone + std::fmt::Debug + Default + PartialEq + Eq
     fn los(&self, color: Player) -> u8;
 
     #[inline]
-    fn update_valid(&mut self, field: &TumbleweedField) -> [bool; 2] {
+    fn update_valid(&mut self, field: &Option<TumbleweedField>) -> [bool; 2] {
         let was_valid_b = self.is_valid(Player::Black);
         let was_valid_w = self.is_valid(Player::White);
         let lb = self.los(Player::Black);
         let lw = self.los(Player::White);
 
-        let validb = (lb > field.stack)
-            && (lb >= lw)
+        let validb = (lb >= lw)
             && (lb < 6)
-            && !(field.color == Some(TumbleweedPiece::Black) && (lb > lw + 1));
+            && match field {
+                None => true,
+                Some(f) => (lb > f.stack.get())
+                    && !(f.color ==TumbleweedPiece::Black && (lb > lw + 1))
+            };
+
         self.set_valid(Player::Black, validb);
 
-        let validw = (lw > field.stack)
-            && (lw >= lb)
+        let validw = (lw >= lb)
             && (lw < 6)
-            && !(field.color == Some(TumbleweedPiece::White) && (lw > lb + 1));
+            && match field {
+                None => true,
+                Some(f) => (lw > f.stack.get())
+                    && !(f.color ==TumbleweedPiece::White && (lw > lb + 1))
+            };
 
         self.set_valid(Player::White, validw);
 
@@ -285,7 +312,7 @@ pub struct Tumbleweed {
     current: Player,
     valid_moves: OnceCell<[Vec<TumbleweedMove>; 2]>,
     played_moves: Vec<TumbleweedMove>,
-    board: RoundHexBoard<TumbleweedField>,
+    board: RoundHexBoard<Option<TumbleweedField>>,
     los: RoundHexBoard<TumbleweedLoSField1>,
 }
 
@@ -380,7 +407,7 @@ impl Tumbleweed {
             TumbleweedMove::Swap => self.swap_colors(),
             TumbleweedMove::Play(m) => {
                 let stack = self.los[m].los(self.current);
-                self.place(self.current.into(), stack, m)
+                self.place(self.current.into(), NonZeroU8::new(stack).unwrap(), m)
             }
             TumbleweedMove::Pass => {
                 self.consecutive_passes += 1;
@@ -440,8 +467,8 @@ impl Tumbleweed {
             .filter(|(los, field)| {
                 let lb = los.los(Player::Black);
                 let lw = los.los(Player::White);
-                ((lb > lw) && (lb > field.stack))
-                    || ((field.color == Some(TumbleweedPiece::Black)) && (field.stack >= lw))
+                ((lb > lw) && (lb > field.stack()))
+                    || ((field.color() == Some(TumbleweedPiece::Black)) && (field.stack() >= lw))
             })
             .count() as i16;
 
@@ -452,34 +479,34 @@ impl Tumbleweed {
             .filter(|(los, field)| {
                 let lb = los.los(Player::Black);
                 let lw = los.los(Player::White);
-                ((lw > lb) && (lw > field.stack))
-                    || ((field.color == Some(TumbleweedPiece::White)) && (field.stack >= lb))
+                ((lw > lb) && (lw > field.stack()))
+                    || ((field.color() == Some(TumbleweedPiece::White)) && (field.stack() >= lb))
             })
             .count() as i16;
 
         (pointsb, pointsw)
     }
 
-    fn place(&mut self, color: TumbleweedPiece, stack: u8, coord: BoardCoord) -> ValidDiff {
+    fn place(&mut self, color: TumbleweedPiece, stack: NonZeroU8, coord: BoardCoord) -> ValidDiff {
         let cur = &self.board[coord];
-        let prev_color = cur.color;
-        self.board[coord] = TumbleweedField {
+        let prev_color = cur.as_ref().map(|f| f.color);
+        self.board[coord] = Some(TumbleweedField {
             stack,
-            color: Some(color),
-        };
+            color,
+        });
         update_los(&self.board, &mut self.los, color, prev_color, coord)
     }
 
     fn setup(&mut self, neutral: BoardCoord, black: BoardCoord, white: BoardCoord) -> ValidDiff {
-        self.place(TumbleweedPiece::Neutral, 2, neutral);
-        let [b, _] = self.place(TumbleweedPiece::Black, 1, black);
-        let [_, w] = self.place(TumbleweedPiece::White, 1, white);
+        self.place(TumbleweedPiece::Neutral, NonZeroU8::new(2).unwrap(), neutral);
+        let [b, _] = self.place(TumbleweedPiece::Black, NonZeroU8::new(1).unwrap(), black);
+        let [_, w] = self.place(TumbleweedPiece::White, NonZeroU8::new(1).unwrap(), white);
         [b, w]
     }
 
     fn swap_colors(&mut self) -> ValidDiff {
-        for f in self.board.iter_fields_mut() {
-            f.color = f.color.map(|c| c.opponent());
+        for fld in self.board.iter_fields_mut() {
+            fld.as_mut().map(|f| f.color = f.color.opponent());
         }
         for f in self.los.iter_fields_mut() {
             f.swap();
@@ -488,7 +515,7 @@ impl Tumbleweed {
         [vec![], vec![]]
     }
 
-    pub fn board(&self) -> &RoundHexBoard<TumbleweedField> {
+    pub fn board(&self) -> &RoundHexBoard<Option<TumbleweedField>> {
         &self.board
     }
 
@@ -502,7 +529,7 @@ impl Tumbleweed {
 }
 
 fn update_los(
-    board: &RoundHexBoard<TumbleweedField>,
+    board: &RoundHexBoard<Option<TumbleweedField>>,
     los: &mut RoundHexBoard<TumbleweedLoSField1>,
     color: TumbleweedPiece,
     prev_color: Option<TumbleweedPiece>,
@@ -543,8 +570,8 @@ fn update_los(
         for cc in itup.skip(1).take((bs1 - cu).min(bs1 + cd) as usize) {
             let cidx = get_round_idx(bs, cc, offsets);
             to_update_l.push(cidx);
-            if board.as_slice()[cidx].stack > 0 {
-                other_piece_l = board.as_slice()[cidx].color;
+            if let Some(field) = board.as_slice()[cidx] {
+                other_piece_l = Some(field.color);
                 break;
             }
         }
@@ -565,8 +592,8 @@ fn update_los(
                     ret[i].push(TumbleweedMove::Play(cc));
                 }
             }
-            if field.stack > 0 {
-                other_piece_r = field.color;
+            if let Some(f) = field {
+                other_piece_r = Some(f.color);
                 break;
             }
         }

@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 hex2d = "1.1.0"
 rand = "0.8.5"
+[dev-dependencies]
+rand_chacha = "0.3"
 
 [profile.release]
 debug = 1
