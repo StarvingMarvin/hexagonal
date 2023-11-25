@@ -12,7 +12,7 @@ fn main() {
         let mut nfields = 0;
 
         for _ in 0..1000 {
-            let mut twgame = Tumbleweed::new(size);
+            let mut twgame: Tumbleweed = Tumbleweed::new(size);
             nfields = twgame.board().num_fields();
             let setup = GenStartMoves::new(twgame.board().get_coords())
                 .choose(&mut rng)
