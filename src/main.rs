@@ -6,6 +6,8 @@ use rand::prelude::*;
 
 fn main() {
     let mut rng = thread_rng();
+    let start = Instant::now();
+    let mut total_moves = 0;
     for size in 6..13 {
         let now = Instant::now();
         let mut moves = 0;
@@ -38,5 +40,7 @@ fn main() {
             moves / 1000,
             now.elapsed().as_millis()
         );
+        total_moves += moves;
     }
+    println!("Overall: {} ns / move", start.elapsed().as_nanos() / total_moves as u128)
 }
