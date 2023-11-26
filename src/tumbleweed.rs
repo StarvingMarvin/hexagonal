@@ -31,12 +31,12 @@ impl From<Player> for TumbleweedPiece {
     }
 }
 
-trait MaybeField {
+trait TumbleweedField {
     fn stack(&self) -> u8;
     fn color(&self) -> Option<TumbleweedPiece>;
 }
 
-impl MaybeField for Option<TumbleweedField> {
+impl TumbleweedField for Option<ColorStack> {
     #[inline]
     fn stack(&self) -> u8 {
         match self {
@@ -52,7 +52,7 @@ impl MaybeField for Option<TumbleweedField> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TumbleweedField {
+pub struct ColorStack {
     pub stack: NonZeroU8,
     pub color: TumbleweedPiece,
 }
@@ -65,7 +65,7 @@ pub trait TumbleweedLoSField:
     fn los(&self, color: Player) -> u8;
 
     #[inline]
-    fn update_valid(&mut self, field: &Option<TumbleweedField>) -> [bool; 2] {
+    fn update_valid(&mut self, field: &Option<ColorStack>) -> [bool; 2] {
         let was_valid_b = self.is_valid(Player::Black);
         let was_valid_w = self.is_valid(Player::White);
         let lb = self.los(Player::Black);
@@ -307,7 +307,7 @@ where
     current: Player,
     valid_moves: OnceCell<[Vec<TumbleweedMove>; 2]>,
     played_moves: Vec<TumbleweedMove>,
-    board: RoundHexBoard<Option<TumbleweedField>>,
+    board: RoundHexBoard<Option<ColorStack>>,
     los: RoundHexBoard<LS>,
 }
 
@@ -500,7 +500,7 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
         let coord = coord.as_idx(&self.board);
         let cur = &self.board[coord];
         let prev_color = cur.as_ref().map(|f| f.color);
-        self.board[coord] = Some(TumbleweedField { stack, color });
+        self.board[coord] = Some(ColorStack { stack, color });
         update_los(&self.board, &mut self.los, color, prev_color, coord)
     }
 
@@ -534,7 +534,7 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
     }
 
     #[inline]
-    pub fn board(&self) -> &RoundHexBoard<Option<TumbleweedField>> {
+    pub fn board(&self) -> &RoundHexBoard<Option<ColorStack>> {
         &self.board
     }
 
@@ -550,7 +550,7 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
 }
 
 fn update_los<LS: TumbleweedLoSField>(
-    board: &RoundHexBoard<Option<TumbleweedField>>,
+    board: &RoundHexBoard<Option<ColorStack>>,
     los: &mut RoundHexBoard<LS>,
     color: TumbleweedPiece,
     prev_color: Option<TumbleweedPiece>,
