@@ -4,18 +4,15 @@ pub use hex2d::Direction;
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 
-pub trait FieldTrait: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
-impl<T> FieldTrait for T where T: PartialEq + Clone + Hash + std::fmt::Debug + Default + Send + Sync {}
-
 pub type BoardCoord = Coordinate<i8>;
 
 pub trait RoundBoardIndex:
     Clone + std::fmt::Debug + Send + Sync + Hash + Copy + PartialEq + Eq
 {
-    fn index<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> &T;
-    fn index_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> &mut T;
-    fn get<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> Option<&T>;
-    fn get_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T>;
+    fn index<T>(self, board: &RoundHexBoard<T>) -> &T;
+    fn index_mut<T>(self, board: &mut RoundHexBoard<T>) -> &mut T;
+    fn get<T>(self, board: &RoundHexBoard<T>) -> Option<&T>;
+    fn get_mut<T>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T>;
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
@@ -26,7 +23,7 @@ pub enum RoundBoardCoord {
 
 impl RoundBoardCoord {
     #[inline]
-    pub fn as_coord<T: FieldTrait>(&self, board: &RoundHexBoard<T>) -> Self {
+    pub fn as_coord<T>(&self, board: &RoundHexBoard<T>) -> Self {
         match self {
             Self::C(_c) => *self,
             Self::I(i) => Self::C(board.get_coords()[*i]),
@@ -34,7 +31,7 @@ impl RoundBoardCoord {
     }
 
     #[inline]
-    pub fn as_idx<T: FieldTrait>(&self, board: &RoundHexBoard<T>) -> Self {
+    pub fn as_idx<T>(&self, board: &RoundHexBoard<T>) -> Self {
         match self {
             Self::C(c) => {
                 let idx = get_round_idx(board.size, *c, board.offsets);
@@ -45,7 +42,7 @@ impl RoundBoardCoord {
     }
 
     #[inline]
-    pub fn coord<T: FieldTrait>(&self, board: &RoundHexBoard<T>) -> BoardCoord {
+    pub fn coord<T>(&self, board: &RoundHexBoard<T>) -> BoardCoord {
         match self {
             Self::C(c) => *c,
             Self::I(i) => board.get_coords()[*i],
@@ -53,7 +50,7 @@ impl RoundBoardCoord {
     }
 
     #[inline]
-    pub fn idx<T: FieldTrait>(&self, board: &RoundHexBoard<T>) -> usize {
+    pub fn idx<T>(&self, board: &RoundHexBoard<T>) -> usize {
         match self {
             Self::C(c) => get_round_idx(board.size, *c, board.offsets),
             Self::I(i) => *i,
@@ -194,8 +191,6 @@ impl<'a, T> Iterator for IterCoordField<'a, T> {
 impl<'a, T> ExactSizeIterator for IterCoordField<'a, T> {}
 
 pub struct IterNeighbours<'a, T>
-where
-    T: FieldTrait,
 {
     board: &'a RoundHexBoard<T>,
     ncoord: [BoardCoord; 6],
@@ -203,8 +198,6 @@ where
 }
 
 impl<'a, T> Iterator for IterNeighbours<'a, T>
-where
-    T: FieldTrait,
 {
     type Item = (BoardCoord, &'a T);
 
@@ -260,19 +253,14 @@ fn max_coord(index: BoardCoord) -> u8 {
 ///assert_eq!(board.get((-2, 3)), Some(&4));
 ///```
 #[derive(Debug, Clone)]
-pub struct RoundHexBoard<T>
-where
-    T: FieldTrait,
-{
+pub struct RoundHexBoard<T> {
     size: u8,
     board: Box<[T]>,
     offsets: &'static [u16],
 }
 
-impl<T> RoundHexBoard<T>
-where
-    T: FieldTrait,
-{
+impl<T: Default> RoundHexBoard<T> {
+
     /// Constructs a new instance of a given size. In all anticipated scenarios
     /// size will be in roughly 6-12 range so instead of returning Result,
     /// the method will panic if size is greater than 127, which is well above
@@ -283,7 +271,8 @@ where
         }
         let s = size as usize;
         let len = SIZES[s];
-        let board = vec![T::default(); len];
+        let mut board = Vec::with_capacity(len);
+        board.resize_with(len, Default::default);
 
         RoundHexBoard {
             size,
@@ -291,6 +280,10 @@ where
             offsets: get_offsets(s),
         }
     }
+}
+
+
+impl<T> RoundHexBoard<T> {
 
     /// Chechks if coordinate is falid for this board. Since this board type
     /// uses [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
@@ -406,7 +399,7 @@ where
     }
 }
 
-impl<T: FieldTrait> TryFrom<Box<[T]>> for RoundHexBoard<T> {
+impl<T> TryFrom<Box<[T]>> for RoundHexBoard<T> {
     type Error = HexagonalError;
 
     #[inline]
@@ -426,7 +419,10 @@ impl<T: FieldTrait> TryFrom<Box<[T]>> for RoundHexBoard<T> {
     }
 }
 
-impl<T: FieldTrait> TryFrom<&[T]> for RoundHexBoard<T> {
+impl<T> TryFrom<&[T]> for RoundHexBoard<T>
+where
+    T: Clone
+{
     type Error = HexagonalError;
 
     #[inline]
@@ -446,7 +442,7 @@ impl<T: FieldTrait> TryFrom<&[T]> for RoundHexBoard<T> {
     }
 }
 
-impl<T: FieldTrait> Deref for RoundHexBoard<T> {
+impl<T> Deref for RoundHexBoard<T> {
     type Target = [T];
 
     #[inline]
@@ -455,7 +451,7 @@ impl<T: FieldTrait> Deref for RoundHexBoard<T> {
     }
 }
 
-impl<T: FieldTrait> DerefMut for RoundHexBoard<T> {
+impl<T> DerefMut for RoundHexBoard<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.board
@@ -464,7 +460,6 @@ impl<T: FieldTrait> DerefMut for RoundHexBoard<T> {
 
 impl<T, I> Index<I> for RoundHexBoard<T>
 where
-    T: FieldTrait,
     I: RoundBoardIndex,
 {
     type Output = T;
@@ -477,7 +472,6 @@ where
 
 impl<T, I> IndexMut<I> for RoundHexBoard<T>
 where
-    T: FieldTrait,
     I: RoundBoardIndex,
 {
     #[inline]
@@ -486,7 +480,7 @@ where
     }
 }
 
-impl<T: FieldTrait> IntoIterator for RoundHexBoard<T> {
+impl<T> IntoIterator for RoundHexBoard<T> {
     type Item = T;
 
     type IntoIter = IntoIter<T>;
@@ -498,8 +492,9 @@ impl<T: FieldTrait> IntoIterator for RoundHexBoard<T> {
 }
 
 impl RoundBoardIndex for RoundBoardCoord {
+
     #[inline]
-    fn index<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> &T {
+    fn index<T>(self, board: &RoundHexBoard<T>) -> &T {
         match self {
             Self::C(c) => &board[c],
             Self::I(i) => &board[i],
@@ -507,7 +502,7 @@ impl RoundBoardIndex for RoundBoardCoord {
     }
 
     #[inline]
-    fn index_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> &mut T {
+    fn index_mut<T>(self, board: &mut RoundHexBoard<T>) -> &mut T {
         match self {
             Self::C(c) => board.index_mut(c),
             Self::I(i) => board.index_mut(i),
@@ -515,7 +510,7 @@ impl RoundBoardIndex for RoundBoardCoord {
     }
 
     #[inline]
-    fn get<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> Option<&T> {
+    fn get<T>(self, board: &RoundHexBoard<T>) -> Option<&T> {
         match self {
             Self::C(c) => board.get(c),
             Self::I(i) => board.get(i),
@@ -523,7 +518,7 @@ impl RoundBoardIndex for RoundBoardCoord {
     }
 
     #[inline]
-    fn get_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
+    fn get_mut<T>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
         match self {
             Self::C(c) => board.get_mut(c),
             Self::I(i) => board.get_mut(i),
@@ -547,70 +542,70 @@ impl From<usize> for RoundBoardCoord {
 
 impl RoundBoardIndex for BoardCoord {
     #[inline]
-    fn index<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> &T {
+    fn index<T>(self, board: &RoundHexBoard<T>) -> &T {
         let idx = get_round_idx(board.size, self, board.offsets);
         &board.as_slice()[idx]
     }
 
     #[inline]
-    fn index_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> &mut T {
+    fn index_mut<T>(self, board: &mut RoundHexBoard<T>) -> &mut T {
         let idx = get_round_idx(board.size, self, board.offsets);
         &mut board.as_mut_slice()[idx]
     }
 
     #[inline]
-    fn get<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> Option<&T> {
+    fn get<T>(self, board: &RoundHexBoard<T>) -> Option<&T> {
         board.valid_coord(self).then(|| self.index(board))
     }
 
     #[inline]
-    fn get_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
+    fn get_mut<T>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
         board.valid_coord(self).then(|| self.index_mut(board))
     }
 }
 
 impl RoundBoardIndex for usize {
     #[inline]
-    fn index<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> &T {
+    fn index<T>(self, board: &RoundHexBoard<T>) -> &T {
         &board.as_slice()[self]
     }
 
     #[inline]
-    fn index_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> &mut T {
+    fn index_mut<T>(self, board: &mut RoundHexBoard<T>) -> &mut T {
         &mut board.as_mut_slice()[self]
     }
 
     #[inline]
-    fn get<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> Option<&T> {
+    fn get<T>(self, board: &RoundHexBoard<T>) -> Option<&T> {
         (self < board.num_fields()).then(|| self.index(board))
     }
 
     #[inline]
-    fn get_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
+    fn get_mut<T>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
         (self < board.num_fields()).then(|| self.index_mut(board))
     }
 }
 
 impl RoundBoardIndex for (i8, i8) {
     #[inline]
-    fn index<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> &T {
+    fn index<T>(self, board: &RoundHexBoard<T>) -> &T {
         let idx = get_round_idx(board.size, self.into(), board.offsets);
         &board.as_slice()[idx]
     }
 
     #[inline]
-    fn index_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> &mut T {
+    fn index_mut<T>(self, board: &mut RoundHexBoard<T>) -> &mut T {
         let idx = get_round_idx(board.size, self.into(), board.offsets);
         &mut board.as_mut_slice()[idx]
     }
 
     #[inline]
-    fn get<T: FieldTrait>(self, board: &RoundHexBoard<T>) -> Option<&T> {
+    fn get<T>(self, board: &RoundHexBoard<T>) -> Option<&T> {
         board.valid_coord(self.into()).then(|| self.index(board))
     }
 
     #[inline]
-    fn get_mut<T: FieldTrait>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
+    fn get_mut<T>(self, board: &mut RoundHexBoard<T>) -> Option<&mut T> {
         board
             .valid_coord(self.into())
             .then(|| self.index_mut(board))
@@ -619,7 +614,7 @@ impl RoundBoardIndex for (i8, i8) {
 
 macro_rules! impl_from_arr {
     ($size:expr) => {
-        impl<T: FieldTrait> From<[T; SIZES[$size]]> for RoundHexBoard<T> {
+        impl<T> From<[T; SIZES[$size]]> for RoundHexBoard<T> {
             #[inline]
             fn from(value: [T; SIZES[$size]]) -> Self {
                 RoundHexBoard {
