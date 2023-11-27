@@ -31,12 +31,21 @@ impl From<Player> for TumbleweedPiece {
     }
 }
 
-trait TumbleweedField {
+pub trait TumbleweedField:
+    Copy + Clone + Default + std::fmt::Debug + std::hash::Hash + Send + Sync
+{
+    fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self;
     fn stack(&self) -> u8;
     fn color(&self) -> Option<TumbleweedPiece>;
+    fn swap(&mut self);
 }
 
 impl TumbleweedField for Option<ColorStack> {
+    #[inline]
+    fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self {
+        Some(ColorStack { stack, color })
+    }
+
     #[inline]
     fn stack(&self) -> u8 {
         match self {
@@ -48,6 +57,17 @@ impl TumbleweedField for Option<ColorStack> {
     #[inline]
     fn color(&self) -> Option<TumbleweedPiece> {
         self.as_ref().map(|f| f.color)
+    }
+
+    #[inline]
+    fn swap(&mut self) {
+        *self = match self {
+            None => None,
+            Some(cs) => Some(ColorStack {
+                color: cs.color.opponent(),
+                stack: cs.stack,
+            }),
+        };
     }
 }
 
@@ -65,7 +85,7 @@ pub trait TumbleweedLoSField:
     fn los(&self, color: Player) -> u8;
 
     #[inline]
-    fn update_valid(&mut self, field: &Option<ColorStack>) -> [bool; 2] {
+    fn update_valid<F: TumbleweedField>(&mut self, field: &F) -> [bool; 2] {
         let was_valid_b = self.is_valid(Player::Black);
         let was_valid_w = self.is_valid(Player::White);
         let lb = self.los(Player::Black);
@@ -73,23 +93,15 @@ pub trait TumbleweedLoSField:
 
         let validb = (lb >= lw)
             && (lb < 6)
-            && match field {
-                None => true,
-                Some(f) => {
-                    (lb > f.stack.get()) && !(f.color == TumbleweedPiece::Black && (lb > lw + 1))
-                }
-            };
+            && (lb > field.stack())
+            && !(field.color() == Some(TumbleweedPiece::Black) && (lb > lw + 1));
 
         self.set_valid(Player::Black, validb);
 
         let validw = (lw >= lb)
             && (lw < 6)
-            && match field {
-                None => true,
-                Some(f) => {
-                    (lw > f.stack.get()) && !(f.color == TumbleweedPiece::White && (lw > lb + 1))
-                }
-            };
+            && (lw > field.stack())
+            && !(field.color() == Some(TumbleweedPiece::White) && (lw > lb + 1));
 
         self.set_valid(Player::White, validw);
 
@@ -299,19 +311,24 @@ impl ExactSizeIterator for GenStartMoves {}
 type ValidDiff = [Vec<TumbleweedMove>; 2];
 
 #[derive(Debug, Clone)]
-pub struct Tumbleweed<LS = TumbleweedLoS>
+pub struct Tumbleweed<F = Option<ColorStack>, LS = TumbleweedLoS>
 where
+    F: TumbleweedField,
     LS: TumbleweedLoSField,
 {
     consecutive_passes: u8,
     current: Player,
     valid_moves: OnceCell<[Vec<TumbleweedMove>; 2]>,
     played_moves: Vec<TumbleweedMove>,
-    board: RoundHexBoard<Option<ColorStack>>,
+    board: RoundHexBoard<F>,
     los: RoundHexBoard<LS>,
 }
 
-impl<LS: TumbleweedLoSField> Game for Tumbleweed<LS> {
+impl<F, LS> Game for Tumbleweed<F, LS>
+where
+    F: TumbleweedField,
+    LS: TumbleweedLoSField,
+{
     type Move = TumbleweedMove;
 
     #[inline]
@@ -387,9 +404,13 @@ impl<LS: TumbleweedLoSField> Game for Tumbleweed<LS> {
     }
 }
 
-impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
+impl<F, LS> Tumbleweed<F, LS>
+where
+    F: TumbleweedField,
+    LS: TumbleweedLoSField,
+{
     #[inline]
-    pub fn new(size: u8) -> Tumbleweed<LS> {
+    pub fn new(size: u8) -> Tumbleweed<F, LS> {
         Tumbleweed {
             consecutive_passes: 0,
             board: RoundHexBoard::new(size),
@@ -499,8 +520,8 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
     ) -> ValidDiff {
         let coord = coord.as_idx(&self.board);
         let cur = &self.board[coord];
-        let prev_color = cur.as_ref().map(|f| f.color);
-        self.board[coord] = Some(ColorStack { stack, color });
+        let prev_color = cur.color();
+        self.board[coord] = F::new(stack, color);
         update_los(&self.board, &mut self.los, color, prev_color, coord)
     }
 
@@ -524,7 +545,7 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
     #[inline]
     fn swap_colors(&mut self) -> ValidDiff {
         for fld in self.board.iter_fields_mut() {
-            fld.as_mut().map(|f| f.color = f.color.opponent());
+            fld.swap();
         }
         for f in self.los.iter_fields_mut() {
             f.swap();
@@ -534,7 +555,7 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
     }
 
     #[inline]
-    pub fn board(&self) -> &RoundHexBoard<Option<ColorStack>> {
+    pub fn board(&self) -> &RoundHexBoard<F> {
         &self.board
     }
 
@@ -549,8 +570,8 @@ impl<LS: TumbleweedLoSField> Tumbleweed<LS> {
     }
 }
 
-fn update_los<LS: TumbleweedLoSField>(
-    board: &RoundHexBoard<Option<ColorStack>>,
+fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
+    board: &RoundHexBoard<F>,
     los: &mut RoundHexBoard<LS>,
     color: TumbleweedPiece,
     prev_color: Option<TumbleweedPiece>,
@@ -593,8 +614,8 @@ fn update_los<LS: TumbleweedLoSField>(
         for cc in itup.skip(1).take((bs1 - cu).min(bs1 + cd) as usize) {
             let cidx = RoundBoardCoord::C(cc).as_idx(board);
             to_update_l.push(cidx);
-            if let Some(field) = board[cidx] {
-                other_piece_l = Some(field.color);
+            if let Some(color) = board[cidx].color() {
+                other_piece_l = Some(color);
                 break;
             }
         }
@@ -615,8 +636,8 @@ fn update_los<LS: TumbleweedLoSField>(
                     ret[i].push(cidx.into());
                 }
             }
-            if let Some(f) = field {
-                other_piece_r = Some(f.color);
+            if let Some(color) = field.color() {
+                other_piece_r = Some(color);
                 break;
             }
         }

@@ -190,15 +190,13 @@ impl<'a, T> Iterator for IterCoordField<'a, T> {
 
 impl<'a, T> ExactSizeIterator for IterCoordField<'a, T> {}
 
-pub struct IterNeighbours<'a, T>
-{
+pub struct IterNeighbours<'a, T> {
     board: &'a RoundHexBoard<T>,
     ncoord: [BoardCoord; 6],
     idx: usize,
 }
 
-impl<'a, T> Iterator for IterNeighbours<'a, T>
-{
+impl<'a, T> Iterator for IterNeighbours<'a, T> {
     type Item = (BoardCoord, &'a T);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -260,7 +258,6 @@ pub struct RoundHexBoard<T> {
 }
 
 impl<T: Default> RoundHexBoard<T> {
-
     /// Constructs a new instance of a given size. In all anticipated scenarios
     /// size will be in roughly 6-12 range so instead of returning Result,
     /// the method will panic if size is greater than 127, which is well above
@@ -282,9 +279,7 @@ impl<T: Default> RoundHexBoard<T> {
     }
 }
 
-
 impl<T> RoundHexBoard<T> {
-
     /// Chechks if coordinate is falid for this board. Since this board type
     /// uses [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
     /// with the origin at central field, coordinate is valid if it's less than
@@ -421,7 +416,7 @@ impl<T> TryFrom<Box<[T]>> for RoundHexBoard<T> {
 
 impl<T> TryFrom<&[T]> for RoundHexBoard<T>
 where
-    T: Clone
+    T: Clone,
 {
     type Error = HexagonalError;
 
@@ -492,7 +487,6 @@ impl<T> IntoIterator for RoundHexBoard<T> {
 }
 
 impl RoundBoardIndex for RoundBoardCoord {
-
     #[inline]
     fn index<T>(self, board: &RoundHexBoard<T>) -> &T {
         match self {

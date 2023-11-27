@@ -42,5 +42,8 @@ fn main() {
         );
         total_moves += moves;
     }
-    println!("Overall: {} ns / move", start.elapsed().as_nanos() / total_moves as u128)
+    println!(
+        "Overall: {} ns / move",
+        start.elapsed().as_nanos() / total_moves as u128
+    )
 }
