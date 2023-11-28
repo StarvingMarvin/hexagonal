@@ -1,3 +1,23 @@
+//! Implementation of a
+//! [Tumbleweed](https://boardgamegeek.com/boardgame/318702/tumbleweed)
+//! game rules.
+//!
+//! A stack can "see" a field, when they are connected by a straight line, with
+//! no stacks in between. The players take turns placing stacks of their tokens
+//! on hexes that are seen by at least one friendly stack. The height of every
+//! newly-placed stack equals the number of your stacks that see the new stack.
+//! Replacing an existing stack with a new stack is possible, as long as the
+//! new stack is taller than the previous one. This works with opponent stacks
+//! (to capture), or your own stacks (to reinforce).
+//!
+//! Before the game, the host sets up the board and the guest decides which
+//! side he wants to play. Setup consists of one stack of two neutral tokens in
+//! the central hex, and a single starting token for each player in hexes of
+//! the host's choosing.
+//!
+//! The game ends when no more moves can be made by either player, or after two
+//! successive passes. The player who occupies over half the board wins.
+
 use crate::common::{HexagonalError, HexagonalResult};
 use crate::game::{Game, GameResult, Player};
 use crate::hexboard::{BoardCoord, Direction, DirectionIterator, RoundBoardCoord, RoundHexBoard};
@@ -5,6 +25,7 @@ use std::cell::OnceCell;
 use std::cmp::Ordering;
 use std::num::NonZeroU8;
 
+/// Possible color of a Tumbleweed piece
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
 pub enum TumbleweedPiece {
     Black,
@@ -13,6 +34,9 @@ pub enum TumbleweedPiece {
 }
 
 impl TumbleweedPiece {
+
+    /// Similar to [Player::opponent], except [TumbleweedPiece::Neutral] returns itself
+    #[inline]
     pub fn opponent(&self) -> TumbleweedPiece {
         match self {
             TumbleweedPiece::Black => TumbleweedPiece::White,
@@ -23,6 +47,9 @@ impl TumbleweedPiece {
 }
 
 impl From<Player> for TumbleweedPiece {
+
+    /// Convert [Player] to [TumbleweedPiece]
+    #[inline]
     fn from(val: Player) -> Self {
         match val {
             Player::Black => TumbleweedPiece::Black,
@@ -31,12 +58,21 @@ impl From<Player> for TumbleweedPiece {
     }
 }
 
+/// TumbleweedField can either be empty or has a stack of non-zero heigth of some color.
+/// The [Default::default] constructor returns an empty field.
 pub trait TumbleweedField:
     Copy + Clone + Default + std::fmt::Debug + std::hash::Hash + Send + Sync
 {
+    /// Creates a field populated with a stack of given height and color.
     fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self;
+
+    /// Returns a height of a stack, or 0 if the field is empty.
     fn stack(&self) -> u8;
+
+    /// Returns a `Some(color)` of a stack or `None` if the field is empty.
     fn color(&self) -> Option<TumbleweedPiece>;
+
+    /// Swaps the color of the stack, leaving the height unchanged.
     fn swap(&mut self);
 }
 
@@ -71,12 +107,15 @@ impl TumbleweedField for Option<ColorStack> {
     }
 }
 
+/// A struct that describes a height of a specified color and non-zero height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ColorStack {
     pub stack: NonZeroU8,
     pub color: TumbleweedPiece,
 }
 
+/// Asside from the actual board state of stack of peices on the board, there are
+/// other usefull properties of a game state, speciffically
 pub trait TumbleweedLoSField:
     Clone + std::fmt::Debug + Default + PartialEq + Eq + std::hash::Hash + Sync + Send
 {
@@ -208,105 +247,6 @@ pub enum TumbleweedMove {
     Play(RoundBoardCoord),
     Pass,
 }
-
-impl From<BoardCoord> for TumbleweedMove {
-    #[inline]
-    fn from(value: BoardCoord) -> Self {
-        TumbleweedMove::Play(value.into())
-    }
-}
-
-impl From<usize> for TumbleweedMove {
-    #[inline]
-    fn from(value: usize) -> Self {
-        TumbleweedMove::Play(value.into())
-    }
-}
-
-impl From<RoundBoardCoord> for TumbleweedMove {
-    #[inline]
-    fn from(value: RoundBoardCoord) -> Self {
-        TumbleweedMove::Play(value)
-    }
-}
-
-impl From<(i8, i8)> for TumbleweedMove {
-    #[inline]
-    fn from(value: (i8, i8)) -> Self {
-        TumbleweedMove::Play(BoardCoord::from(value).into())
-    }
-}
-
-impl From<(BoardCoord, BoardCoord)> for TumbleweedMove {
-    #[inline]
-    fn from((b, w): (BoardCoord, BoardCoord)) -> Self {
-        TumbleweedMove::Setup(b, w)
-    }
-}
-
-pub struct GenStartMoves {
-    coords: &'static [BoardCoord],
-    b: usize,
-    w: usize,
-    zero: usize,
-    cnt: usize,
-}
-
-impl GenStartMoves {
-    pub fn new(coords: &'static [BoardCoord]) -> Self {
-        GenStartMoves {
-            coords,
-            b: 0,
-            w: 1,
-            zero: coords.len() / 2,
-            cnt: 0,
-        }
-    }
-}
-
-impl Iterator for GenStartMoves {
-    type Item = TumbleweedMove;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.b < self.coords.len()).then(|| {
-            let ret = (self.coords[self.b], self.coords[self.w]).into();
-            self.w += 1;
-            while self.w == self.b || self.w == self.zero {
-                self.w += 1;
-            }
-            if self.w >= self.coords.len() {
-                self.w = 0;
-                self.b += 1;
-                if self.b == self.zero {
-                    self.b += 1;
-                }
-            }
-            self.cnt += 1;
-            ret
-        })
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let l = self.coords.len();
-        let total = (l - 1) * (l - 2);
-        (total - self.cnt, Some(total - self.cnt))
-    }
-
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.cnt += n;
-        let l2 = self.coords.len() - 2;
-        self.b = self.cnt / l2;
-        self.b += (self.b >= self.zero) as usize;
-
-        self.w = self.cnt % l2;
-        self.w += (self.w >= self.b) as usize + (self.w >= self.zero) as usize;
-
-        self.next()
-    }
-}
-
-impl ExactSizeIterator for GenStartMoves {}
 
 type ValidDiff = [Vec<TumbleweedMove>; 2];
 
@@ -569,6 +509,105 @@ where
         &self.played_moves
     }
 }
+
+impl From<BoardCoord> for TumbleweedMove {
+    #[inline]
+    fn from(value: BoardCoord) -> Self {
+        TumbleweedMove::Play(value.into())
+    }
+}
+
+impl From<usize> for TumbleweedMove {
+    #[inline]
+    fn from(value: usize) -> Self {
+        TumbleweedMove::Play(value.into())
+    }
+}
+
+impl From<RoundBoardCoord> for TumbleweedMove {
+    #[inline]
+    fn from(value: RoundBoardCoord) -> Self {
+        TumbleweedMove::Play(value)
+    }
+}
+
+impl From<(i8, i8)> for TumbleweedMove {
+    #[inline]
+    fn from(value: (i8, i8)) -> Self {
+        TumbleweedMove::Play(BoardCoord::from(value).into())
+    }
+}
+
+impl From<(BoardCoord, BoardCoord)> for TumbleweedMove {
+    #[inline]
+    fn from((b, w): (BoardCoord, BoardCoord)) -> Self {
+        TumbleweedMove::Setup(b, w)
+    }
+}
+
+pub struct GenStartMoves {
+    coords: &'static [BoardCoord],
+    b: usize,
+    w: usize,
+    zero: usize,
+    cnt: usize,
+}
+
+impl GenStartMoves {
+    pub fn new(coords: &'static [BoardCoord]) -> Self {
+        GenStartMoves {
+            coords,
+            b: 0,
+            w: 1,
+            zero: coords.len() / 2,
+            cnt: 0,
+        }
+    }
+}
+
+impl Iterator for GenStartMoves {
+    type Item = TumbleweedMove;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.b < self.coords.len()).then(|| {
+            let ret = (self.coords[self.b], self.coords[self.w]).into();
+            self.w += 1;
+            while self.w == self.b || self.w == self.zero {
+                self.w += 1;
+            }
+            if self.w >= self.coords.len() {
+                self.w = 0;
+                self.b += 1;
+                if self.b == self.zero {
+                    self.b += 1;
+                }
+            }
+            self.cnt += 1;
+            ret
+        })
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let l = self.coords.len();
+        let total = (l - 1) * (l - 2);
+        (total - self.cnt, Some(total - self.cnt))
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.cnt += n;
+        let l2 = self.coords.len() - 2;
+        self.b = self.cnt / l2;
+        self.b += (self.b >= self.zero) as usize;
+
+        self.w = self.cnt % l2;
+        self.w += (self.w >= self.b) as usize + (self.w >= self.zero) as usize;
+
+        self.next()
+    }
+}
+
+impl ExactSizeIterator for GenStartMoves {}
 
 fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
     board: &RoundHexBoard<F>,
