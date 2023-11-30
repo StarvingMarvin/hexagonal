@@ -60,7 +60,7 @@ impl RoundBoardCoord {
 
 // RoundHexBoard saves all the data into a contiguous slice so it needs to
 // resolve an (x, y) coordinate into the slice index. Since not every row has
-// the same nuber of columns, this array saves starting offsets for each row
+// the same number of columns, this array saves starting offsets for each row
 // for board sizes 1-127. Offsets can be retrieved from a flat array because
 // of the following observations:
 //
@@ -158,7 +158,7 @@ pub fn get_coords(board_size: u8) -> &'static [BoardCoord] {
     }
 }
 
-// This is roughly equivalent to coords.iter().zip(fielrs.itre()),
+// This is roughly equivalent to coords.iter().zip(fields.iter()),
 // but the zip is actually slightly faster so it probably shouldn't
 // be used in a hot path.
 pub struct IterCoordField<'a, T> {
@@ -234,11 +234,11 @@ fn max_coord(index: BoardCoord) -> u8 {
 /// with a (0, 0) coordinate placed on a central field. Therefore a valid set of coordinates are
 /// those which respect invariance that max offset from center for any of the three coordinates
 /// (third being `z = -x - y`) is less than board size: `max(|x|, |y|, |-x - y|) < size`.
-/// There are two sets of methods for acceccing fields: [`RoundHexBoard::get`] and
+/// There are two sets of methods for accessing fields: [`RoundHexBoard::get`] and
 /// [`RoundHexBoard::get_mut`] return an [`Option<&T>`] or [`Option<&mut T>`] respectively, whose
 /// value is `None` if coordinate is not valid for a given board size.
 /// `RoundHexBoard` also implement [`Index`] and [`IndexMut`] traits.
-/// Acceccing a field using `[]` or `[]=` syntax is undefined for invalid coordinates
+/// Accessing a field using `[]` or `[]=` syntax is undefined for invalid coordinates
 /// (it might panic or it might return the wrong field).
 ///
 ///```
@@ -250,7 +250,7 @@ fn max_coord(index: BoardCoord) -> u8 {
 ///board[(-2, 3)] = 4;
 ///assert_eq!(board.get((-2, 3)), Some(&4));
 ///```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RoundHexBoard<T> {
     size: u8,
     board: Box<[T]>,
@@ -280,7 +280,7 @@ impl<T: Default> RoundHexBoard<T> {
 }
 
 impl<T> RoundHexBoard<T> {
-    /// Chechks if coordinate is falid for this board. Since this board type
+    /// Checks if coordinate is valid for this board. Since this board type
     /// uses [cube coordinates](https://www.redblobgames.com/grids/hexagons/#coordinates-cube)
     /// with the origin at central field, coordinate is valid if it's less than
     /// `size` away along any axis: `max(|x|, |y|, |-x - y|) < size`.
@@ -645,7 +645,7 @@ impl_from_arr! {15}
 impl_from_arr! {16}
 
 /// Generate successive coordinates in a given direction, from a given coordinate (inclusive).
-/// This is an ifinite iterator.
+/// This is an infinite iterator.
 ///
 ///```
 ///use hex2d::Direction;
