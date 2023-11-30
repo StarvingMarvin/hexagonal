@@ -10,13 +10,21 @@
 //! new stack is taller than the previous one. This works with opponent stacks
 //! (to capture), or your own stacks (to reinforce).
 //!
-//! Before the game, the host sets up the board and the guest decides which
-//! side he wants to play. Setup consists of one stack of two neutral tokens in
-//! the central hex, and a single starting token for each player in hexes of
-//! the host's choosing.
+//! Since there are no pieces at the beginning of the game, it would imply that
+//! there are no valid first moves. Therefore the first move consist of the
+//! first (Black) player placing one black and one white piece on the board,
+//! plus the neutral stack of height 2 at the center of the board. The White
+//! player can than either accept the position and continue by placing a white
+//! piece wherever line-of-sight rule allows, or swap the colors, and let the
+//! opponent continue from the same position.
 //!
 //! The game ends when no more moves can be made by either player, or after two
 //! successive passes. The player who occupies over half the board wins.
+//!
+//! As an optimization in context of AI moves, valid moves that are no-op are
+//! also disallowed. That includes placing stacks that can be immediately
+//! captured, placing stack of height 6, and reinforcing stacks that are not
+//! threatened.
 
 use crate::common::{HexagonalError, HexagonalResult};
 use crate::game::{Game, GameResult, Player};

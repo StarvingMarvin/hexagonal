@@ -6,7 +6,6 @@ use std::ops::{Index, IndexMut};
 
 use crate::common::HexagonalResult;
 
-
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Player {
     Black,
@@ -14,7 +13,6 @@ pub enum Player {
 }
 
 impl Player {
-
     #[inline]
     pub fn opponent(&self) -> Self {
         match self {
@@ -62,7 +60,6 @@ impl<T> Index<Player> for BW<T> {
 }
 
 impl<T> IndexMut<Player> for BW<T> {
-
     #[inline]
     fn index_mut(&mut self, index: Player) -> &mut Self::Output {
         &mut self.0[index as usize]
@@ -70,7 +67,6 @@ impl<T> IndexMut<Player> for BW<T> {
 }
 
 impl<T> BW<T> {
-
     #[inline]
     pub fn swap(&mut self) {
         self.0.reverse();
@@ -97,11 +93,9 @@ impl<T> BW<T> {
         let [_, w] = self.0;
         w
     }
-
 }
 
 impl<T> From<[T; 2]> for BW<T> {
-
     #[inline]
     fn from(value: [T; 2]) -> Self {
         BW(value)
@@ -109,7 +103,6 @@ impl<T> From<[T; 2]> for BW<T> {
 }
 
 impl<T> From<(T, T)> for BW<T> {
-
     #[inline]
     fn from(value: (T, T)) -> Self {
         BW([value.0, value.1])
