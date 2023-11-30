@@ -27,236 +27,11 @@
 //! threatened.
 
 use crate::common::{HexagonalError, HexagonalResult};
-use crate::game::{Game, GameResult, Player};
+use crate::game::{Game, GameResult, Player, BW};
 use crate::hexboard::{BoardCoord, Direction, DirectionIterator, RoundBoardCoord, RoundHexBoard};
 use std::cell::OnceCell;
 use std::cmp::Ordering;
 use std::num::NonZeroU8;
-
-/// Possible color of a Tumbleweed piece
-#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
-pub enum TumbleweedPiece {
-    Black,
-    White,
-    Neutral,
-}
-
-impl TumbleweedPiece {
-
-    /// Similar to [Player::opponent], except [TumbleweedPiece::Neutral] returns itself
-    #[inline]
-    pub fn opponent(&self) -> TumbleweedPiece {
-        match self {
-            TumbleweedPiece::Black => TumbleweedPiece::White,
-            TumbleweedPiece::White => TumbleweedPiece::Black,
-            _ => *self,
-        }
-    }
-}
-
-impl From<Player> for TumbleweedPiece {
-
-    /// Convert [Player] to [TumbleweedPiece]
-    #[inline]
-    fn from(val: Player) -> Self {
-        match val {
-            Player::Black => TumbleweedPiece::Black,
-            Player::White => TumbleweedPiece::White,
-        }
-    }
-}
-
-/// TumbleweedField can either be empty or has a stack of non-zero heigth of some color.
-/// The [Default::default] constructor returns an empty field.
-pub trait TumbleweedField:
-    Copy + Clone + Default + std::fmt::Debug + std::hash::Hash + Send + Sync
-{
-    /// Creates a field populated with a stack of given height and color.
-    fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self;
-
-    /// Returns a height of a stack, or 0 if the field is empty.
-    fn stack(&self) -> u8;
-
-    /// Returns a `Some(color)` of a stack or `None` if the field is empty.
-    fn color(&self) -> Option<TumbleweedPiece>;
-
-    /// Swaps the color of the stack, leaving the height unchanged.
-    fn swap(&mut self);
-}
-
-impl TumbleweedField for Option<ColorStack> {
-    #[inline]
-    fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self {
-        Some(ColorStack { stack, color })
-    }
-
-    #[inline]
-    fn stack(&self) -> u8 {
-        match self {
-            None => 0,
-            Some(x) => x.stack.into(),
-        }
-    }
-
-    #[inline]
-    fn color(&self) -> Option<TumbleweedPiece> {
-        self.as_ref().map(|f| f.color)
-    }
-
-    #[inline]
-    fn swap(&mut self) {
-        *self = match self {
-            None => None,
-            Some(cs) => Some(ColorStack {
-                color: cs.color.opponent(),
-                stack: cs.stack,
-            }),
-        };
-    }
-}
-
-/// A struct that describes a height of a specified color and non-zero height.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ColorStack {
-    pub stack: NonZeroU8,
-    pub color: TumbleweedPiece,
-}
-
-/// Asside from the actual board state of stack of peices on the board, there are
-/// other usefull properties of a game state, speciffically
-pub trait TumbleweedLoSField:
-    Clone + std::fmt::Debug + Default + PartialEq + Eq + std::hash::Hash + Sync + Send
-{
-    fn is_valid(&self, color: Player) -> bool;
-
-    fn los(&self, color: Player) -> u8;
-
-    #[inline]
-    fn update_valid<F: TumbleweedField>(&mut self, field: &F) -> [bool; 2] {
-        let was_valid_b = self.is_valid(Player::Black);
-        let was_valid_w = self.is_valid(Player::White);
-        let lb = self.los(Player::Black);
-        let lw = self.los(Player::White);
-
-        let validb = (lb >= lw)
-            && (lb < 6)
-            && (lb > field.stack())
-            && !(field.color() == Some(TumbleweedPiece::Black) && (lb > lw + 1));
-
-        self.set_valid(Player::Black, validb);
-
-        let validw = (lw >= lb)
-            && (lw < 6)
-            && (lw > field.stack())
-            && !(field.color() == Some(TumbleweedPiece::White) && (lw > lb + 1));
-
-        self.set_valid(Player::White, validw);
-
-        [!was_valid_b && validb, !was_valid_w && validw]
-    }
-
-    fn swap(&mut self);
-
-    fn inc(&mut self, color: TumbleweedPiece, i: u8);
-
-    fn dec(&mut self, color: TumbleweedPiece, i: u8);
-
-    fn reset_valid(&mut self, color: Player);
-
-    fn set_valid(&mut self, color: Player, valid: bool);
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TumbleweedCompactLoS(u8);
-
-impl TumbleweedLoSField for TumbleweedCompactLoS {
-    #[inline]
-    fn is_valid(&self, color: Player) -> bool {
-        self.0 & [1, 16][color as usize] > 0
-    }
-
-    #[inline]
-    fn los(&self, color: Player) -> u8 {
-        self.0 >> [1, 5][color as usize] & 0b0111
-    }
-
-    #[inline]
-    fn swap(&mut self) {
-        self.0 = (self.0 & 0b11110000 >> 4) | (self.0 << 4);
-    }
-
-    #[inline]
-    fn inc(&mut self, color: TumbleweedPiece, i: u8) {
-        self.0 += [2, 32][color as usize] * i;
-    }
-
-    #[inline]
-    fn dec(&mut self, color: TumbleweedPiece, i: u8) {
-        self.0 -= [2, 32][color as usize] * i;
-    }
-
-    #[inline]
-    fn reset_valid(&mut self, color: Player) {
-        self.0 &= [0b11111110, 0b11101111][color as usize];
-    }
-
-    #[inline]
-    fn set_valid(&mut self, color: Player, valid: bool) {
-        self.0 &= [0b11111110, 0b11101111][color as usize];
-        self.0 |= [1, 16][color as usize] * valid as u8;
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct TumbleweedLoS([u8; 2], [bool; 2]);
-
-impl TumbleweedLoSField for TumbleweedLoS {
-    #[inline]
-    fn is_valid(&self, color: Player) -> bool {
-        self.1[color as usize]
-    }
-
-    #[inline]
-    fn los(&self, color: Player) -> u8 {
-        self.0[color as usize]
-    }
-
-    #[inline]
-    fn swap(&mut self) {
-        self.0.reverse();
-        self.1.reverse();
-    }
-
-    #[inline]
-    fn inc(&mut self, color: TumbleweedPiece, i: u8) {
-        self.0[color as usize] += i;
-    }
-
-    #[inline]
-    fn dec(&mut self, color: TumbleweedPiece, i: u8) {
-        self.0[color as usize] -= i;
-    }
-
-    #[inline]
-    fn reset_valid(&mut self, color: Player) {
-        self.1[color as usize] = false;
-    }
-
-    #[inline]
-    fn set_valid(&mut self, color: Player, valid: bool) {
-        self.1[color as usize] = valid;
-    }
-}
-
-#[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
-pub enum TumbleweedMove {
-    Setup(BoardCoord, BoardCoord),
-    Swap,
-    Play(RoundBoardCoord),
-    Pass,
-}
-
-type ValidDiff = [Vec<TumbleweedMove>; 2];
 
 #[derive(Debug, Clone)]
 pub struct Tumbleweed<F = Option<ColorStack>, LS = TumbleweedLoS>
@@ -266,7 +41,7 @@ where
 {
     consecutive_passes: u8,
     current: Player,
-    valid_moves: OnceCell<[Vec<TumbleweedMove>; 2]>,
+    valid_moves: OnceCell<BW<Vec<TumbleweedMove>>>,
     played_moves: Vec<TumbleweedMove>,
     board: RoundHexBoard<F>,
     los: RoundHexBoard<LS>,
@@ -300,7 +75,8 @@ where
                 GenStartMoves::new(self.board().get_coords()).collect(),
                 vec![],
             ]
-        })[self.current as usize]
+            .into()
+        })[self.current]
             .as_slice()
     }
 
@@ -314,7 +90,7 @@ where
             ),
             1 => match mv {
                 TumbleweedMove::Swap => true,
-                TumbleweedMove::Play(c) if self.los[c].is_valid(Player::White) => true,
+                TumbleweedMove::Play(c) if self.los[c].is_valid(self.current) => true,
                 _ => false,
             },
             _ => {
@@ -383,7 +159,7 @@ where
             }
             TumbleweedMove::Pass => {
                 self.consecutive_passes += 1;
-                [vec![], vec![]]
+                ValidDiff::default()
             }
         };
 
@@ -400,12 +176,12 @@ where
         let last = &self.last_move();
         let los = &self.los;
         let coords = &self.board.get_coords();
-        self.valid_moves.get_or_init(|| [vec![], vec![]]);
+        self.valid_moves.get_or_init(Default::default);
         {
-            let oppo = self.current.opponent() as usize;
+            let oppo = self.current.opponent();
             self.valid_moves.get_mut().unwrap()[oppo].append(&mut delta[oppo]);
         }
-        let valid = &mut self.valid_moves.get_mut().unwrap()[self.current as usize];
+        let valid = &mut self.valid_moves.get_mut().unwrap()[self.current];
         if self.consecutive_passes >= 2 {
             valid.clear();
             return;
@@ -418,7 +194,7 @@ where
             }
         }
 
-        valid.append(&mut delta[self.current as usize]);
+        valid.append(&mut delta[self.current]);
 
         match last {
             Some(m) => {
@@ -470,7 +246,12 @@ where
         let cur = &self.board[coord];
         let prev_color = cur.color();
         self.board[coord] = F::new(stack, color);
-        update_los(&self.board, &mut self.los, color, prev_color, coord)
+
+        if let Some(c) = color.into() {
+            update_los(&self.board, &mut self.los, c, prev_color, coord)
+        } else {
+            Default::default()
+        }
     }
 
     #[inline]
@@ -485,9 +266,9 @@ where
             NonZeroU8::new(2).unwrap(),
             neutral,
         );
-        let [b, _] = self.place(TumbleweedPiece::Black, NonZeroU8::new(1).unwrap(), black);
-        let [_, w] = self.place(TumbleweedPiece::White, NonZeroU8::new(1).unwrap(), white);
-        [b, w]
+        let b = self.place(TumbleweedPiece::Black, NonZeroU8::new(1).unwrap(), black);
+        let w = self.place(TumbleweedPiece::White, NonZeroU8::new(1).unwrap(), white);
+        [b.take_black(), w.take_white()].into()
     }
 
     #[inline]
@@ -498,8 +279,8 @@ where
         for f in self.los.iter_fields_mut() {
             f.swap();
         }
-        self.valid_moves.get_mut().unwrap().reverse();
-        [vec![], vec![]]
+        self.valid_moves.get_mut().unwrap().swap();
+        Default::default()
     }
 
     #[inline]
@@ -517,6 +298,267 @@ where
         &self.played_moves
     }
 }
+
+/// Possible color of a Tumbleweed piece.
+#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
+pub enum TumbleweedPiece {
+    Black,
+    White,
+    Neutral,
+}
+
+impl TumbleweedPiece {
+    /// Similar to [Player::opponent], except [TumbleweedPiece::Neutral] returns itself
+    #[inline]
+    pub fn opponent(&self) -> TumbleweedPiece {
+        match self {
+            TumbleweedPiece::Black => TumbleweedPiece::White,
+            TumbleweedPiece::White => TumbleweedPiece::Black,
+            _ => *self,
+        }
+    }
+}
+
+impl From<Player> for TumbleweedPiece {
+    /// Convert [Player] to [TumbleweedPiece]
+    #[inline]
+    fn from(val: Player) -> Self {
+        match val {
+            Player::Black => TumbleweedPiece::Black,
+            Player::White => TumbleweedPiece::White,
+        }
+    }
+}
+
+impl From<TumbleweedPiece> for Option<Player> {
+    #[inline]
+    fn from(value: TumbleweedPiece) -> Self {
+        match value {
+            TumbleweedPiece::Neutral => None,
+            TumbleweedPiece::Black => Some(Player::Black),
+            TumbleweedPiece::White => Some(Player::White),
+        }
+    }
+}
+
+/// TumbleweedField can either be empty or has a stack of non-zero height of some color.
+/// The [Default::default] constructor returns an empty field.
+pub trait TumbleweedField:
+    Copy + Clone + Default + std::fmt::Debug + std::hash::Hash + Send + Sync
+{
+    /// Creates a field populated with a stack of given height and color.
+    fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self;
+
+    /// Returns a height of a stack, or 0 if the field is empty.
+    fn stack(&self) -> u8;
+
+    /// Returns a `Some(color)` of a stack or `None` if the field is empty.
+    fn color(&self) -> Option<TumbleweedPiece>;
+
+    /// Swaps the color of the stack, leaving the height unchanged.
+    fn swap(&mut self);
+}
+
+/// A struct that describes a height of a specified color and non-zero height.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ColorStack {
+    pub stack: NonZeroU8,
+    pub color: TumbleweedPiece,
+}
+
+impl TumbleweedField for Option<ColorStack> {
+    #[inline]
+    fn new(stack: NonZeroU8, color: TumbleweedPiece) -> Self {
+        Some(ColorStack { stack, color })
+    }
+
+    #[inline]
+    fn stack(&self) -> u8 {
+        match self {
+            None => 0,
+            Some(x) => x.stack.into(),
+        }
+    }
+
+    #[inline]
+    fn color(&self) -> Option<TumbleweedPiece> {
+        self.as_ref().map(|f| f.color)
+    }
+
+    #[inline]
+    fn swap(&mut self) {
+        *self = match self {
+            None => None,
+            Some(cs) => Some(ColorStack {
+                color: cs.color.opponent(),
+                stack: cs.stack,
+            }),
+        };
+    }
+}
+
+/// Aside from the actual board state of stack of pieces on the board, there
+/// are other useful properties of a game state, specifically line-of-sight
+/// counts for black and white, and wether placing a stack on this field would
+/// be a valid b/w move.
+pub trait TumbleweedLoSField:
+    Clone + std::fmt::Debug + Default + PartialEq + Eq + std::hash::Hash + Sync + Send
+{
+    /// Wether placing a stack on this field would be a valid move for a player
+    /// of a given color.
+    fn is_valid(&self, color: Player) -> bool;
+
+    /// From how many sides is this field observed by a player of a given color.
+    fn los(&self, color: Player) -> u8;
+
+    /// Updates the valid state of this field given the current line-of-sight
+    /// counts and the current occupancy state of the field. It returns an
+    /// array of two booleans marking weather he field became valid in this
+    /// move for Black or White player.
+    #[inline]
+    fn update_valid<F: TumbleweedField>(&mut self, field: &F) -> BW<bool> {
+        let was_valid_b = self.is_valid(Player::Black);
+        let was_valid_w = self.is_valid(Player::White);
+        let lb = self.los(Player::Black);
+        let lw = self.los(Player::White);
+
+        let validb = (lb >= lw)
+            && (lb < 6)
+            && (lb > field.stack())
+            && !(field.color() == Some(TumbleweedPiece::Black) && (lb > lw + 1));
+
+        self.set_valid(Player::Black, validb);
+
+        let validw = (lw >= lb)
+            && (lw < 6)
+            && (lw > field.stack())
+            && !(field.color() == Some(TumbleweedPiece::White) && (lw > lb + 1));
+
+        self.set_valid(Player::White, validw);
+
+        [!was_valid_b && validb, !was_valid_w && validw].into()
+    }
+
+    /// Swaps line-of-sight and validity status for black and white players.
+    fn swap(&mut self);
+
+    /// Increases line-of-sight count for a given player by i.
+    fn inc(&mut self, color: Player, i: u8);
+
+    /// Decreases line-of-sight count for a given player by i.
+    fn dec(&mut self, color: Player, i: u8);
+
+    #[inline]
+    fn reset_valid(&mut self) {
+        self.set_valid(Player::Black, false);
+        self.set_valid(Player::White, false);
+    }
+
+    /// Sets a valid status for a given player.
+    fn set_valid(&mut self, color: Player, valid: bool);
+}
+
+/// A structure that implements [TumbleweedLoSField] trait while encoding
+/// all the data in a single byte.
+///
+/// As the maximum number of sides a field can be observed is 6, which can be
+/// encoded in 3 bits, and weather the field is valid or not in 1 bit, the
+/// entire LoSField state for both players can be encoded into a single `u8`.
+/// This however incurs computation overhead when manipulating and retrieving
+/// the data. In presence of vectorized algorithms that could parallelize this
+/// processing it could be worthwhile, but as it stands, the naive
+/// implementation that consumes 4 bytes to store the same data is faster. The
+/// good news is that the [Tumbleweed] struct is parametrized on LosField type,
+/// so if an algorithm that can take an advantage of the compact representation
+/// is developed, it will be trivial to switch.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TumbleweedCompactLoS(u8);
+
+impl TumbleweedLoSField for TumbleweedCompactLoS {
+    #[inline]
+    fn is_valid(&self, color: Player) -> bool {
+        self.0 & [1, 16][color as usize] > 0
+    }
+
+    #[inline]
+    fn los(&self, color: Player) -> u8 {
+        self.0 >> [1, 5][color as usize] & 0b0111
+    }
+
+    #[inline]
+    fn swap(&mut self) {
+        self.0 = (self.0 & 0b11110000 >> 4) | (self.0 << 4);
+    }
+
+    #[inline]
+    fn inc(&mut self, color: Player, i: u8) {
+        self.0 += [2, 32][color as usize] * i;
+    }
+
+    #[inline]
+    fn dec(&mut self, color: Player, i: u8) {
+        self.0 -= [2, 32][color as usize] * i;
+    }
+
+    #[inline]
+    fn reset_valid(&mut self) {
+        self.0 &= 0b11101110;
+    }
+
+    #[inline]
+    fn set_valid(&mut self, color: Player, valid: bool) {
+        self.0 &= [0b11111110, 0b11101111][color as usize];
+        self.0 |= [1, 16][color as usize] * valid as u8;
+    }
+}
+
+/// A simple struct that implements the [TumbleweedLoSField] trait.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TumbleweedLoS(BW<u8>, BW<bool>);
+
+impl TumbleweedLoSField for TumbleweedLoS {
+    #[inline]
+    fn is_valid(&self, color: Player) -> bool {
+        self.1[color]
+    }
+
+    #[inline]
+    fn los(&self, color: Player) -> u8 {
+        self.0[color]
+    }
+
+    #[inline]
+    fn swap(&mut self) {
+        self.0.swap();
+        self.1.swap();
+    }
+
+    #[inline]
+    fn inc(&mut self, color: Player, i: u8) {
+        self.0[color] += i;
+    }
+
+    #[inline]
+    fn dec(&mut self, color: Player, i: u8) {
+        self.0[color] -= i;
+    }
+
+    #[inline]
+    fn set_valid(&mut self, color: Player, valid: bool) {
+        self.1[color] = valid;
+    }
+}
+
+/// Possible kinds of moves in the game.
+#[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
+pub enum TumbleweedMove {
+    Setup(BoardCoord, BoardCoord),
+    Swap,
+    Play(RoundBoardCoord),
+    Pass,
+}
+
+type ValidDiff = BW<Vec<TumbleweedMove>>;
 
 impl From<BoardCoord> for TumbleweedMove {
     #[inline]
@@ -553,6 +595,14 @@ impl From<(BoardCoord, BoardCoord)> for TumbleweedMove {
     }
 }
 
+/// Iterator that yields all valid start moves for a given board size.
+///
+/// On the first move, Black player places one black and one white piece on
+/// any field on the board, except the center which is reserved for the
+/// neutral stack. This gives an order of n<sup>4</sup> valid moves for a
+/// board of size `n`. In order to avoid materializing that list,
+/// `GenStartMoves` is an iterator with an efficient [GenStartMoves::nth] implementation,
+/// that can, for example, be used to select a move randomly.
 pub struct GenStartMoves {
     coords: &'static [BoardCoord],
     b: usize,
@@ -620,29 +670,24 @@ impl ExactSizeIterator for GenStartMoves {}
 fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
     board: &RoundHexBoard<F>,
     los: &mut RoundHexBoard<LS>,
-    color: TumbleweedPiece,
+    color: Player,
     prev_color: Option<TumbleweedPiece>,
     coord: RoundBoardCoord,
 ) -> ValidDiff {
-    if color == TumbleweedPiece::Neutral {
-        return [vec![], vec![]];
-    }
-
     let oppo = color.opponent();
 
     let coord_i = coord.idx(board);
     let coord_c = coord.coord(board);
 
-    los[coord_i].reset_valid(Player::Black);
-    los[coord_i].reset_valid(Player::White);
+    los[coord_i].reset_valid();
 
-    if prev_color == Some(color) {
-        return [vec![], vec![]];
+    if prev_color == Some(color.into()) {
+        return Default::default();
     }
 
     let bs = board.size();
     let bs1 = board.size() as i8 - 1;
-    let mut ret = [vec![], vec![]];
+    let mut ret = BW::<Vec<TumbleweedMove>>::default();
 
     for dir in [Direction::XY, Direction::YZ, Direction::ZX].iter() {
         let mut to_update_l = Vec::with_capacity(bs as usize * 2);
@@ -667,7 +712,7 @@ fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
             }
         }
 
-        let (mut losu, mut losd) = los_ud(other_piece_l, prev_color, oppo);
+        let (mut losu, mut losd) = los_ud(other_piece_l, prev_color, oppo.into());
 
         let mut other_piece_r = None;
         for cc in itdown.skip(1).take((bs1 + cu).min(bs1 - cd) as usize) {
@@ -678,7 +723,7 @@ fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
             losc.dec(oppo, losd);
 
             let new_valid = losc.update_valid(field);
-            for i in 0..2 {
+            for i in [Player::Black, Player::White] {
                 if new_valid[i] {
                     ret[i].push(cidx.into());
                 }
@@ -689,14 +734,14 @@ fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
             }
         }
 
-        (losu, losd) = los_ud(other_piece_r, prev_color, oppo);
+        (losu, losd) = los_ud(other_piece_r, prev_color, oppo.into());
         for c in to_update_l {
             let field = &board[c];
             let losc = &mut los[c];
             losc.inc(color, losu);
             losc.dec(oppo, losd);
             let new_valid = losc.update_valid(field);
-            for i in 0..2 {
+            for i in [Player::Black, Player::White] {
                 if new_valid[i] {
                     ret[i].push(c.into());
                 }
