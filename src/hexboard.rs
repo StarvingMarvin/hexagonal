@@ -527,6 +527,13 @@ impl From<BoardCoord> for RoundBoardCoord {
     }
 }
 
+impl From<(i8, i8)> for RoundBoardCoord {
+    #[inline]
+    fn from(value: (i8, i8)) -> Self {
+        Self::C(value.into())
+    }
+}
+
 impl From<usize> for RoundBoardCoord {
     #[inline]
     fn from(value: usize) -> Self {
