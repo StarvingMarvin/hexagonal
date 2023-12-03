@@ -442,6 +442,12 @@ pub trait TumbleweedLoSField:
     /// Swaps line-of-sight and validity status for black and white players.
     fn swap(&mut self);
 
+    #[inline]
+    fn incdec(&mut self, color: Player, i: u8, d: u8) {
+        self.inc(color, i);
+        self.dec(color.opponent(), d);
+    }
+
     /// Increases line-of-sight count for a given player by i.
     fn inc(&mut self, color: Player, i: u8);
 
@@ -488,6 +494,12 @@ impl TumbleweedLoSField for TumbleweedCompactLoS {
     #[inline]
     fn swap(&mut self) {
         self.0 = (self.0 & 0b11110000 >> 4) | (self.0 << 4);
+    }
+
+    #[inline]
+    fn incdec(&mut self, color: Player, i: u8, d: u8) {
+        let id = [(2, 32), (32, 2)][color as usize];
+        self.0 = self.0 + id.0 * i - id.1 * d;
     }
 
     #[inline]
@@ -750,6 +762,111 @@ fn update_los<F: TumbleweedField, LS: TumbleweedLoSField>(
     }
 
     ret
+}
+
+#[allow(dead_code)]
+fn update_los_branchless<F: TumbleweedField, LS: TumbleweedLoSField>(
+    board: &RoundHexBoard<F>,
+    los: &mut RoundHexBoard<LS>,
+    color: Player,
+    prev_color: Option<TumbleweedPiece>,
+    coord: RoundBoardCoord,
+) -> ValidDiff {
+
+    let oppo = color.opponent();
+
+    let coord_i = coord.idx(board);
+    let coord_c = coord.coord(board);
+
+    los[coord_i].reset_valid();
+
+    if prev_color == Some(color.into()) {
+        return Default::default();
+    }
+
+    let bs1 = board.size() as i8 - 1;
+
+    let (x, y, z) = (coord_c.x, coord_c.y, coord_c.z());
+    let (xa, ya, za) = (x.abs(), y.abs(), z.abs());
+    let l2 = board.num_rows() - 1;
+    let (xl, yl, zl) = (l2 - xa as usize, l2 - ya as usize, l2 - za as usize);
+
+    let total_affected = xl + yl + zl;
+    let mut coords: Vec<RoundBoardCoord> = Vec::with_capacity(total_affected);
+    let rxu = (bs1 - y).min(bs1 + z);
+    let rxd = (bs1 + y).min(bs1 - z);
+    let ryu = (bs1 - x).min(bs1 + z);
+    let ryd = (bs1 + x).min(bs1 - z);
+    let rzu = (bs1 - x).min(bs1 + y);
+    let rzd = (bs1 + x).min(bs1 - y);
+    let rx = rxu as usize + rxd as usize;
+    let ry = ryu as usize + ryd as usize;
+    let rz = rzu as usize + rzd as usize;
+    let splits = [0, rxu as usize, rx, rx + ryu as usize, rx + ry, rx + ry + rzu as usize, rx + ry + rz];
+    coords.extend((1..=rxu).map(|i| RoundBoardCoord::from((x, y + i))));
+    coords.extend((1..=rxd).map(|i| RoundBoardCoord::from((x, y - i))));
+    coords.extend((1..=ryu).map(|i| RoundBoardCoord::from((x + i, y))));
+    coords.extend((1..=ryd).map(|i| RoundBoardCoord::from((x - i, y))));
+    coords.extend((1..=rzu).map(|i| RoundBoardCoord::from((x + i, y - i))));
+    coords.extend((1..=rzd).map(|i| RoundBoardCoord::from((x - i, y + i))));
+
+    debug_assert_eq!(total_affected, coords.len());
+
+    let indices: Vec<RoundBoardCoord> = coords.iter().map(|c| c.as_idx(board)).collect();
+    let mut fields: Vec<F> = Vec::with_capacity(total_affected);
+    let mut afidx: Vec<RoundBoardCoord> = Vec::with_capacity(total_affected);
+
+    let mut counts = [0; 7];
+    let mut uds = [(0, 0); 6];
+
+    for i in 0..6 {
+        let mut other = None;
+        let mut count = splits[i + 1] - splits[i];
+        for (e, &idx) in indices[splits[i]..splits[i + 1]].iter().enumerate() {
+            let f = board[idx];
+            fields.push(f);
+            afidx.push(idx);
+            if f.color().is_some() {
+                count = e + 1;
+                other = f.color();
+                break;
+            }
+        }
+        counts[i + 1] = counts[i] + count;
+        // println!("{i} {}", i + 1 - (i % 2) * 2);
+        uds[i + 1 - (i % 2) * 2] = los_ud(other, prev_color, oppo.into());
+    }
+
+    assert_eq!(counts[6], fields.len());
+
+    let mut i = 0;
+    let (mut validb, mut validw) = (0, 0);
+
+//     let valids = for (e, (&idx, &fld)) in afidx.iter().zip(fields.iter()).enumerate() {
+//         i += (counts[i + 1] == e) as usize;
+//         los[idx].incdec(color, uds[i].0, uds[i].1);
+//
+//     }
+
+    let valids: Vec<BW<bool>> = afidx.iter().zip(fields.iter()).enumerate().map(|(e, (&idx, &fld))|{
+        i += (counts[i + 1] == e) as usize;
+        i += (counts[i + 1] == e) as usize;
+        los[idx].incdec(color, uds[i].0, uds[i].1);
+        let new_vals = los[idx].update_valid(&fld);
+        validb += new_vals[Player::Black] as usize;
+        validw += new_vals[Player::White] as usize;
+        new_vals
+    }).collect();
+
+    afidx.iter().zip(valids.iter()).fold([Vec::with_capacity(validb), Vec::with_capacity(validw)].into(), |mut acc, (&idx, &val)| {
+        if val[Player::Black] {
+            acc[Player::Black].push(idx.into())
+        }
+        if val[Player::White] {
+            acc[Player::White].push(idx.into())
+        }
+        acc
+    })
 }
 
 #[inline]
